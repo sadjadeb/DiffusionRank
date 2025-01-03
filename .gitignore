@@ -1,3 +1,10 @@
 /.venv
 /.idea
 /data
+**/data
+**/**/*.pt
+**/**/*.pth
+**/**/wandb
+/__pycache__
+**/__pycache__
+**/**/__pycache__
