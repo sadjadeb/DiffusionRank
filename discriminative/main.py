@@ -1,96 +1,127 @@
-import numpy as np
+"""
+This script has been adapted from the original script from the following repository:
+https://github.com/spacemanidol/AFIRMDeepLearning2020/blob/master/LTR.ipynb 
+"""
+
+
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from dataset import RankingDataset
-from model import RankingModel
-import os
-from tqdm import trange
+import math
+from model import DNN
+from data_loader import DataLoaderTrain, DataLoaderTest
+from utils import set_all_seeds
 
+# Set random seeds for reproducibility
+seed = 42
+set_all_seeds(seed)
 
-def train_model(model, train_loader, val_loader, num_epochs=10, learning_rate=0.001):
+approach = 'pointwise' # ['pointwise', 'pairwise']
+dataset = 'MQ2007' # ['MQ2007', 'MQ2008', 'MSLR-Web10K', 'MSLR-Web30K']
+
+# Set hyperparameters
+device = torch.device("cuda:3")
+features_count = 136 if 'MSLR' in dataset else 46
+num_steps_per_epoch = 2048
+num_epochs = 10
+dropout_rate = 0.1
+learning_rate = 1e-5
+
+# Set data paths
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+data_dir = os.path.join(project_root, 'data', dataset, 'Fold1')
+train_data_file = os.path.join(data_dir, 'train.txt')
+test_data_file = os.path.join(data_dir, 'test.txt')
+model_output_file_path = f"ltr.{data_dir.split('/')[-3]}.{num_epochs}.pth"
+
+# Load train and test data
+train_reader = DataLoaderTrain(train_data_file, approach=approach, features_count=features_count, device=device)
+train_reader_iter = iter(train_reader)
+test_reader = DataLoaderTest(test_data_file, features_count=features_count, device=device)
+test_reader_iter = iter(test_reader)
+
+net = DNN(input_dim=features_count, approach=approach, dropout_rate=dropout_rate).to(device)
+optimizer = optim.Adam(net.parameters(), lr=learning_rate)
+if approach == 'pairwise':
+    criterion = nn.CrossEntropyLoss()
+elif approach == 'pointwise':
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    
 
-    for epoch in trange(num_epochs, desc='Epoch'):
-        model.train()
-        running_loss = 0.0
-        for features, labels in train_loader:
-            features, labels = features.float(), labels.float().unsqueeze(1)
-
-            # Zero the parameter gradients
-            optimizer.zero_grad()
-
-            # Forward pass
-            outputs = model(features)
-            loss = criterion(outputs, labels)
-
-            # Backward pass and optimize
-            loss.backward()
-            optimizer.step()
-
-            running_loss += loss.item() * features.size(0)
-
-        epoch_loss = running_loss / len(train_loader.dataset)
-        print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.4f}")
-
-        # Validate the model
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for features, labels in val_loader:
-                features, labels = features.float(), labels.float().unsqueeze(1)
-                outputs = model(features)
-                loss = criterion(outputs, labels)
-                val_loss += loss.item() * features.size(0)
-
-        val_loss = val_loss / len(val_loader.dataset)
-        print(f"Validation Loss: {val_loss:.4f}")
+def train(net):
+    net.train()
+    train_loss = 0.0
+    for _ in range(num_steps_per_epoch):
+        features, labels = next(train_reader_iter)
+        if approach == 'pairwise':
+            out0 = net(features[0])
+            out1 = net(features[1])
+            out = torch.cat((out0, out1), dim=1)
+            loss = criterion(out, labels)
+        elif approach == 'pointwise':
+            labels = labels.view(-1, 1).float()
+            out = net(features)
+            loss = criterion(out, labels)
+        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        train_loss += loss.item()
+    
+    return train_loss / num_steps_per_epoch
 
 
-def test_model(model, test_loader):
-    criterion = nn.MSELoss()
-    model.eval()
-    test_loss = 0.0
+def test(net, epoch, train_loss):
+    net.eval()
     with torch.no_grad():
-        for features, labels in test_loader:
-            features, labels = features.float(), labels.float().unsqueeze(1)
-            outputs = model(features)
-            loss = criterion(outputs, labels)
-            test_loss += loss.item() * features.size(0)
+        results = {}
+        for features, qids, labels, cnt in test_reader_iter:
+            out = net(features).data.cpu()
+            row_cnt = len(qids)
+            for i in range(row_cnt):
+                if qids[i] not in results:
+                    results[qids[i]] = []
+                results[qids[i]].append((labels[i], out[i][0]))
+                
+        avgp = 0
+        avgndcg = 0
+        for qid, docs in results.items():
+            dcg = 0
+            ranked = sorted(docs, key=lambda x: x[1], reverse=True)
+            
+            relevant_in_top10 = sum(1 for doc in ranked[:10] if doc[0] > 0)
+            p = relevant_in_top10 / min(10, len(ranked))
+            avgp += p
+            
+            for i in range(min(10, len(ranked))):
+                rank = i + 1
+                label = ranked[i][0]
+                dcg += ((2**label - 1) / math.log2(rank + 1))
+            idcg = 0
+            ranked = sorted(docs, key=lambda x: x[0], reverse=True)
+            for i in range(min(10, len(ranked))):
+                rank = i + 1
+                label = ranked[i][0]
+                idcg += ((2**label - 1) / math.log2(rank + 1))
+            if idcg > 0:
+                avgndcg += (dcg / idcg)
+        avgp /= len(results)
+        avgndcg /= len(results)
+        
+        print(f'epoch:{epoch}, loss: {train_loss}, avgp: {avgp}, avgndcg: {avgndcg}')
 
-    test_loss = test_loss / len(test_loader.dataset)
-    print(f"Test Loss (RMSE): {np.sqrt(test_loss):.4f}")
 
+if __name__ == '__main__':
+    print('Approach: {}'.format(approach))
+    print('Dataset: {}'.format(dataset))
+    print('Number of learnable parameters: {}'.format(net.parameter_count()))
 
-# Define paths to the validation and test datasets
-base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-train_file_path = os.path.join(base_dir, 'data', 'Fold1', 'train.txt')
-val_file_path = os.path.join(base_dir, 'data', 'Fold1', 'vali.txt')
-test_file_path = os.path.join(base_dir, 'data', 'Fold1', 'test.txt')
+    test(net, 0, 'n/a')
+    for epoch in range(num_epochs):
+        train_loss = train(net)    
+        test(net, epoch + 1, str(train_loss))
 
-# Initialize the datasets
-train_dataset = RankingDataset(train_file_path)
-val_dataset = RankingDataset(val_file_path)
-test_dataset = RankingDataset(test_file_path)
-
-# Create data loaders
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-print(f"Datasets loaded")
-
-
-# Get the input dimension from the dataset
-input_dim = train_dataset.data.shape[1]
-
-# Initialize the model
-model = RankingModel(input_dim)
-print(f"Model initialized")
-
-# Train the model
-train_model(model, train_loader, val_loader, num_epochs=10, learning_rate=0.001)
-
-# # Test the model
-# test_model(model, test_loader)
+    # save model
+    torch.save(net.state_dict(), model_output_file_path)
+    print('Model saved to {}'.format(model_output_file_path))
