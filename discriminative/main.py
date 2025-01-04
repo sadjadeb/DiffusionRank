@@ -30,10 +30,10 @@ learning_rate = 1e-5
 
 # Set data paths
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-data_dir = os.path.join(project_root, 'data', dataset, 'Fold1')
+data_dir = os.path.join(project_root, 'data', dataset, 'raw', 'Fold1')
 train_data_file = os.path.join(data_dir, 'train.txt')
 test_data_file = os.path.join(data_dir, 'test.txt')
-model_output_file_path = f"ltr.{data_dir.split('/')[-3]}.{num_epochs}.pth"
+model_output_file_path = f"ltr.{dataset}.{num_epochs}.pth"
 
 # Load train and test data
 train_reader = DataLoaderTrain(train_data_file, approach=approach, features_count=features_count, device=device)
