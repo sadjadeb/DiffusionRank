@@ -14,7 +14,7 @@ from generative.tab_ddpm.modules import MLPDiffusion
 from generative.scripts.utils_train import make_dataset
 from discriminative.data_loader import DataLoaderTrain, DataLoaderTest
 from discriminative.model import DNN
-from utils import set_all_seeds
+from utils import set_all_seeds, EarlyStopping
 
 
 seed = 42
@@ -30,17 +30,18 @@ p_value = args.p
 k_value = args.k
 sub_exp_no = args.sub
 
-sub_exp_no = 1  # [1, 2] 2 is using the generative model that has been trained partially on unlabeled data
 approach = 'pointwise'  # ['pointwise', 'pairwise']
 dataset = 'MQ2007'  # ['MQ2007', 'MQ2008', 'MSLR-Web10K', 'MSLR-Web30K']
 
 # Set hyperparameters
 device = torch.device("cuda:3")
 features_count = 136 if 'MSLR' in dataset else 46
-num_epochs = 10
+num_epochs = 300
 dropout_rate = 0.2
 learning_rate = 2e-5
 batch_size = 1024
+early_stopping_patience = 15
+early_stopping_min_delta = 0.001
 
 # Set data paths
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -57,7 +58,6 @@ if sub_exp_no == 1:
     generative_experiment_id = f"exp_k{k_value}"
 elif sub_exp_no == 2:
     generative_experiment_id = f"exp_k{k_value}_unlabeled"
-
 generative_config_path = os.path.join('..', 'generative', 'experiments', 'MQ2007', generative_experiment_id, 'config.toml')
 
 wandb.init(project=f"ltr_by_synthetic_{dataset}_sub{sub_exp_no}_{approach}", name=f"exp_p{p_value}_k{k_value}", group=f"{k_value}")
@@ -68,6 +68,8 @@ wandb.config.update({
     "dropout_rate": dropout_rate,
     "learning_rate": learning_rate,
     "batch_size": batch_size,
+    "early_stopping_patience": early_stopping_patience,
+    "early_stopping_min_delta": early_stopping_min_delta,
     "num_synthetic_data_in_batch": num_synthetic_data_in_batch,
     "num_real_data_in_batch": num_real_data_in_batch,
     "generative_config_path": generative_config_path,
@@ -161,11 +163,12 @@ if approach == 'pairwise':
     criterion = nn.CrossEntropyLoss()
 elif approach == 'pointwise':
     criterion = nn.MSELoss()
+early_stopping = EarlyStopping(patience=early_stopping_patience, min_delta=early_stopping_min_delta)
 
 test_reader = DataLoaderTest(test_data_file, features_count=features_count, device=device)
 test_reader_iter = iter(test_reader)
 
-# Start with the pointwise approach because we need the number of data points to find the EPOCH_STEPS, then overwrite the READER_TRAIN_ITER with the pairwise approach
+# Start with the pointwise approach because we need the number of data points to find the num_steps_per_epoch, then overwrite the train_reader_iter with the pairwise approach
 X_train = np.load(os.path.join(raw_config['real_data_path'], 'X_num_train.npy'))
 y_train = np.load(os.path.join(raw_config['real_data_path'], 'y_train.npy'))
 
@@ -264,12 +267,30 @@ if __name__ == '__main__':
     print('Dataset: {}'.format(dataset))
     print('Number of learnable parameters: {}'.format(net.parameter_count()))
 
+    best_val_loss = float('inf')
+    best_model_state = None
+
     test(net, 0, 'n/a')
     for epoch in trange(num_epochs):
         train_loss = train(net)
         avgp, avgndcg, val_loss = test(net, epoch + 1, str(train_loss))
 
         wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss})
+        
+        # Save best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_model_state = net.state_dict().copy()
+            
+        # Early stopping check
+        if early_stopping(val_loss):
+            print(f'Early stopping triggered at epoch {epoch + 1}')
+            break
+
+
+    # Load best model before saving
+    if best_model_state is not None:
+        net.load_state_dict(best_model_state)
 
     # save model
     torch.save(net.state_dict(), model_output_file_path)
