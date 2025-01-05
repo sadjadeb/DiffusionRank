@@ -23,10 +23,12 @@ set_all_seeds(seed)
 parser = ArgumentParser()
 parser.add_argument('--p', type=float)
 parser.add_argument('--k', type=float)
+parser.add_argument('--sub', type=int, choices=[1, 2], help="When sub=2, it uses the generative model that partially trained with unlabeled data.")
 args = parser.parse_args()
 
 p_value = args.p
 k_value = args.k
+sub_exp_no = args.sub
 
 sub_exp_no = 1  # [1, 2] 2 is using the generative model that has been trained partially on unlabeled data
 approach = 'pointwise'  # ['pointwise', 'pairwise']
