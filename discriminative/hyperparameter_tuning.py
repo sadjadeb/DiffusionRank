@@ -25,7 +25,7 @@ num_epochs = 10
 
 # Set data paths
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-data_dir = os.path.join(project_root, 'data', dataset, 'Fold1')
+data_dir = os.path.join(project_root, 'data', dataset, 'raw', 'Fold1')
 train_data_file = os.path.join(data_dir, 'train.txt')
 test_data_file = os.path.join(data_dir, 'test.txt')
 
@@ -88,7 +88,7 @@ def train_and_test(net, optimizer, criterion):
         }
         epoch_results.append(epoch_result)
 
-        message = f"Epoch {epoch + 1}/{num_steps_per_epoch}, Loss: {avg_train_loss:.4f}, AvgP: {avgp:.4f}, AvgNDCG: {avgndcg:.4f}, Performance: {performance:.4f}"
+        message = f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_train_loss:.4f}, AvgP: {avgp:.4f}, AvgNDCG: {avgndcg:.4f}, Performance: {performance:.4f}"
         print(message)
         write_to_file(message)
 
@@ -150,10 +150,17 @@ def hyperparameter_tuning():
         print(message)
         write_to_file(message)
 
-        net = DNN(current_params['num_hidden_nodes'], current_params['num_hidden_layers'],
-                  current_params['dropout_rate']).to(device)
+        net = DNN(input_dim=features_count,
+                  num_hidden_nodes=current_params['num_hidden_nodes'],
+                  num_hidden_layers=current_params['num_hidden_layers'],
+                  dropout_rate=current_params['dropout_rate'],
+                  approach=approach
+                  ).to(device)
         optimizer = optim.Adam(net.parameters(), lr=current_params['learning_rate'])
-        criterion = nn.CrossEntropyLoss() if approach == 'pointwise' else nn.MarginRankingLoss(margin=1.0)
+        if approach == 'pairwise':
+            criterion = nn.CrossEntropyLoss()
+        elif approach == 'pointwise':
+            criterion = nn.MSELoss()
 
         epoch_results = train_and_test(net, optimizer, criterion)
 
