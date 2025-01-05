@@ -4,7 +4,7 @@ import torch.nn as nn
 
 
 class DNN(torch.nn.Module):
-    def __init__(self, input_dim, num_hidden_layers=3, num_hidden_nodes=128, dropout_rate=0.2, approach='pointwise'):
+    def __init__(self, input_dim: int, num_hidden_layers: int = 3, num_hidden_nodes: int = 128, dropout_rate: float = 0.2, approach='pointwise'):
         super(DNN, self).__init__()
         layers = []
         last_dim = input_dim
