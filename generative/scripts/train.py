@@ -179,7 +179,7 @@ if __name__ == '__main__':
 
     raw_config = lib.load_config(args.config)
     device = torch.device(raw_config['device'])
-    dataset = raw_config['real_data_path'].split('/')[-2]
+    dataset = raw_config['real_data_path'].split('/')[-3]
     
     if args.k is not None:
         experiment_id = f"k{args.k}"
