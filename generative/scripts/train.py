@@ -179,16 +179,17 @@ if __name__ == '__main__':
 
     raw_config = lib.load_config(args.config)
     device = torch.device(raw_config['device'])
-    dataset = raw_config['real_data_path'].split('/')[-3]
+    dataset = raw_config['dataset']
     
     if args.k is not None:
         experiment_id = f"k{args.k}"
-        raw_config['real_data_path'] = raw_config['real_data_path'].replace(dataset, f"{dataset}_k{args.k}")
+        raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, experiment_id)
     else:
         experiment_id = time.strftime('%Y-%m-%d_%H-%M-%S')
+        raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, "k1.0")
         
     
-    raw_config['parent_dir'] = raw_config['parent_dir'].format(experiment_id)
+    raw_config['parent_dir'] = raw_config['parent_dir'].format(dataset, experiment_id)
     os.makedirs(raw_config['parent_dir'], exist_ok=True)
     lib.dump_config(raw_config, os.path.join(raw_config['parent_dir'], 'config.toml'))
     
