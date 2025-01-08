@@ -5,6 +5,7 @@ import torch
 import lightgbm as lgb
 from tqdm import trange
 import wandb
+from sklearn.metrics import ndcg_score
 from argparse import ArgumentParser
 
 import generative.lib as lib
@@ -138,27 +139,30 @@ def test(model, X_test, y_test, qids):
             results[qid] = []
         results[qid].append((y_test[i], predictions[i]))
     
-    avgp = 0
-    avgndcg = 0
-    for qid, docs in results.items():
-        # Calculate P@10
-        ranked = sorted(docs, key=lambda x: x[1], reverse=True)
-        relevant_in_top10 = sum(1 for doc in ranked[:10] if doc[0] > 0)
-        p = relevant_in_top10 / min(10, len(ranked))
-        avgp += p
-        
-        # Calculate NDCG@10
-        dcg = sum(((2 ** doc[0] - 1) / math.log2(rank + 2)) 
-                 for rank, doc in enumerate(ranked[:10]))
-        ideal_ranked = sorted(docs, key=lambda x: x[0], reverse=True)
-        idcg = sum(((2 ** doc[0] - 1) / math.log2(rank + 2)) 
-                  for rank, doc in enumerate(ideal_ranked[:10]))
-        
-        if idcg > 0:
-            avgndcg += (dcg / idcg)
-    
-    avgp /= len(results)
-    avgndcg /= len(results)
+    total_precision = 0
+    total_ndcg = 0
+    for qid, labels in results.items():
+        # Extract true labels and predicted labels
+        true_labels = [t[0] for t in labels]
+        predicted_labels = [t[1] for t in labels]
+
+        # Sort based on predicted labels in descending order to calculate P@10
+        sorted_indices = sorted(range(len(predicted_labels)), key=lambda i: predicted_labels[i], reverse=True)
+        top_10_indices = sorted_indices[:10]
+
+        # Precision at 10
+        relevant_at_10 = sum(1 for i in top_10_indices if true_labels[i] > 0)
+        precision_at_10 = relevant_at_10 / 10
+
+        # NDCG@10
+        ndcg_at_10 = ndcg_score([true_labels], [predicted_labels], k=10)
+
+        total_ndcg += ndcg_at_10
+        total_precision += precision_at_10
+
+    # Calculate averages
+    avgp = total_precision / len(results)
+    avgndcg = total_ndcg / len(results)
     
     return avgp, avgndcg
 

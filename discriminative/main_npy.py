@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import wandb
+from sklearn.metrics import ndcg_score
 from utils import set_all_seeds
 from data_loader import DataLoaderTest
 from model import DNN
@@ -19,7 +20,7 @@ dataset = 'MQ2007' # ['MQ2007', 'MQ2008', 'MSLR-Web10K', 'MSLR-Web30K']
 device = torch.device("cuda:3")
 features_count = 136 if 'MSLR' in dataset else 46
 num_steps_per_epoch = 2048
-num_epochs = 10
+num_epochs = 100
 dropout_rate = 0.1
 learning_rate = 1e-5
 batch_size = 1024
@@ -107,32 +108,32 @@ def test(net, epoch, train_loss):
                     results[qids[i]] = []
                 results[qids[i]].append((labels[i], out[i][0]))
         val_loss /= val_size
+
+        total_precision = 0
+        total_ndcg = 0
+        for qid, labels in results.items():
+            # Extract true labels and predicted labels
+            true_labels = [t[0] for t in labels]
+            predicted_labels = [t[1] for t in labels]
+
+            # Sort based on predicted labels in descending order to calculate P@10
+            sorted_indices = sorted(range(len(predicted_labels)), key=lambda i: predicted_labels[i], reverse=True)
+            top_10_indices = sorted_indices[:10]
+
+            # Precision at 10
+            relevant_at_10 = sum(1 for i in top_10_indices if true_labels[i] > 0)
+            precision_at_10 = relevant_at_10 / 10
+
+            # NDCG@10
+            ndcg_at_10 = ndcg_score([true_labels], [predicted_labels], k=10)
+
+            total_ndcg += ndcg_at_10
+            total_precision += precision_at_10
+
+        # Calculate averages
+        avgp = total_precision / len(results)
+        avgndcg = total_ndcg / len(results)
         
-        
-        avgp = 0
-        avgndcg = 0
-        for qid, docs in results.items():
-            dcg = 0
-            ranked = sorted(docs, key=lambda x: x[1], reverse=True)
-            
-            relevant_in_top10 = sum(1 for doc in ranked[:10] if doc[0] > 0)
-            p = relevant_in_top10 / min(10, len(ranked))
-            avgp += p
-            
-            for i in range(min(10, len(ranked))):
-                rank = i + 1
-                label = ranked[i][0]
-                dcg += ((2**label - 1) / math.log2(rank + 1))
-            idcg = 0
-            ranked = sorted(docs, key=lambda x: x[0], reverse=True)
-            for i in range(min(10, len(ranked))):
-                rank = i + 1
-                label = ranked[i][0]
-                idcg += ((2**label - 1) / math.log2(rank + 1))
-            if idcg > 0:
-                avgndcg += (dcg / idcg)
-        avgp /= len(results)
-        avgndcg /= len(results)
         print(f'epoch:{epoch}, loss: {train_loss}, val_loss: {val_loss}, avgp: {avgp}, avgndcg: {avgndcg}')
         
         return avgp, avgndcg, val_loss
