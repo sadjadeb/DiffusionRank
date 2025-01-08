@@ -113,6 +113,7 @@ class InPainter:
     def evaluate_results(self, X_idx, y_pred, y_true):
         results = {}
         for idx, label_t, label_p in zip(X_idx, y_true, y_pred):
+            idx = idx.item()
             if idx not in results:
                 results[idx] = []
             results[idx].append((label_t, label_p))
