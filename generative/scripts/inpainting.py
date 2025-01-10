@@ -24,8 +24,9 @@ def index_to_log_onehot(x, num_classes):
 
 
 class InPainter:
-    def __init__(self, diffusion, dataset, parent_dir, test_loader, test_loader_idx, device):
+    def __init__(self, diffusion, strategy, dataset, parent_dir, test_loader, test_loader_idx, device):
         self.diffusion = diffusion
+        self.strategy = strategy
         self.dataset = dataset
         self.parent_dir = parent_dir
         self.device = device
@@ -46,34 +47,83 @@ class InPainter:
             x_num = batch[:, :self.diffusion.num_numerical_features]
             x_cat = batch[:, self.diffusion.num_numerical_features:]
             
+            original_features = batch[:, 1:self.diffusion.num_numerical_features]
+            
             t_max = torch.full((b,), self.diffusion.num_timesteps - 1, device=device, dtype=torch.long)
             
             # it automatically adds noise to the given input for t number of steps
             x_num_t = self.diffusion.gaussian_q_sample(x_num, t_max)
             
-            log_x_cat_t = torch.zeros((b, 0), device=device).float()
-            if has_cat:
-                log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
-                log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
+            if self.strategy == 'full_noise':
+                log_x_cat_t = torch.zeros((b, 0), device=device).float()
+                if has_cat:
+                    log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
+                    log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
 
-            for i in trange(self.diffusion.num_timesteps - 1, -1, -1, desc='Inpainting', position=1, leave=False):
-                t = torch.full((b,), i, device=device, dtype=torch.long)
-                model_out = self.diffusion._denoise_fn(
-                    torch.cat([x_num_t, log_x_cat_t], dim=1).float(),
-                    t,
-                )
+                for i in trange(self.diffusion.num_timesteps - 1, -1, -1, desc='Inpainting', position=1, leave=False):
+                    t = torch.full((b,), i, device=device, dtype=torch.long)
+                    model_out = self.diffusion._denoise_fn(
+                        torch.cat([x_num_t, log_x_cat_t], dim=1).float(),
+                        t,
+                    )
+                    
+                    model_out_num = model_out[:, :self.diffusion.num_numerical_features]
+                    model_out_cat = model_out[:, self.diffusion.num_numerical_features:]
+                    x_num_t = self.diffusion.gaussian_p_sample(model_out_num, x_num_t, t, clip_denoised=False)['sample']
+                    
+                #     if has_cat:
+                #         log_x_cat_t = self.diffusion.p_sample(model_out_cat, log_x_cat_t, t, out_dict)
+                    
+                # if has_cat:
+                #     z_ohe = torch.exp(log_x_cat_t).round()
+                #     z_cat = log_x_cat_t
+                #     z_cat = self.diffusion.ohe_to_categories(z_ohe, self.num_classes)
                 
-                model_out_num = model_out[:, :self.diffusion.num_numerical_features]
-                model_out_cat = model_out[:, self.diffusion.num_numerical_features:]
-                x_num_t = self.diffusion.gaussian_p_sample(model_out_num, x_num_t, t, clip_denoised=False)['sample']
+            elif self.strategy == 'renoise_features':
+                fixed_noise = torch.randn_like(original_features)
                 
-            #     if has_cat:
-            #         log_x_cat_t = self.diffusion.p_sample(model_out_cat, log_x_cat_t, t, out_dict)
+                log_x_cat_t = torch.zeros((b, 0), device=device).float()
+                if has_cat:
+                    log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
+                    log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
                 
-            # if has_cat:
-            #     z_ohe = torch.exp(log_x_cat_t).round()
-            #     z_cat = log_x_cat_t
-            #     z_cat = self.diffusion.ohe_to_categories(z_ohe, self.num_classes)
+                for i in trange(self.diffusion.num_timesteps - 1, -1, -1, desc='Inpainting', position=1, leave=False):
+                    t = torch.full((b,), i, device=device, dtype=torch.long)
+                    model_out = self.diffusion._denoise_fn(
+                        torch.cat([x_num_t, log_x_cat_t], dim=1).float(),
+                        t,
+                    )
+                    
+                    model_out_num = model_out[:, :self.diffusion.num_numerical_features]
+                    model_out_cat = model_out[:, self.diffusion.num_numerical_features:]
+                    x_num_t = self.diffusion.gaussian_p_sample(model_out_num, x_num_t, t, clip_denoised=False)['sample']
+                    
+                    noisy_features_t = self.diffusion.gaussian_q_sample(original_features, t, noise=fixed_noise)
+                    x_num_t[:, 1:self.diffusion.num_numerical_features] = noisy_features_t
+                    
+                
+            elif self.strategy == 'original_features':
+                # revert the original features
+                x_num_t[:, 1:self.diffusion.num_numerical_features] = original_features
+                
+                log_x_cat_t = torch.zeros((b, 0), device=device).float()
+                if has_cat:
+                    log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
+                    log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
+
+                for i in trange(self.diffusion.num_timesteps - 1, -1, -1, desc='Inpainting', position=1, leave=False):
+                    t = torch.full((b,), i, device=device, dtype=torch.long)
+                    model_out = self.diffusion._denoise_fn(
+                        torch.cat([x_num_t, log_x_cat_t], dim=1).float(),
+                        t,
+                    )
+                    
+                    model_out_num = model_out[:, :self.diffusion.num_numerical_features]
+                    model_out_cat = model_out[:, self.diffusion.num_numerical_features:]
+                    x_num_t = self.diffusion.gaussian_p_sample(model_out_num, x_num_t, t, clip_denoised=False)['sample']
+                    
+                    x_num_t[:, 1:self.diffusion.num_numerical_features] = original_features
+                    
             
             X_idx.append(batch_idx)
             X_predicted.append(x_num_t)
@@ -159,6 +209,7 @@ def inpaint(
     T_dict = None,
     num_numerical_features = 0,
     device = "cpu",
+    strategy = 'full_noise',
 ):
     
     real_data_path = os.path.normpath(real_data_path)
@@ -195,7 +246,10 @@ def inpaint(
     X[:, 0] = labels_unique[random_indices]
     
     # Get the original labels to evaluate inpainting; As the features are normalized, we need to inverse transform them
-    X_unnorm = D.num_transform.inverse_transform(X)
+    if D.num_transform is not None:
+        X_unnorm = D.num_transform.inverse_transform(X)
+    else:
+        X_unnorm = X
     true_labels = X_unnorm[:, 0]
     true_labels = np.round(true_labels, decimals=6)
 
@@ -215,11 +269,11 @@ def inpaint(
     diffusion.to(device)
     diffusion.eval()
     
-    inpainter = InPainter(diffusion, D, parent_dir, test_loader, test_loader_idx, device)
+    inpainter = InPainter(diffusion, strategy, D, parent_dir, test_loader, test_loader_idx, device)
     X_idx, X_predicted= inpainter.run_loop()
     X_idx, X_num, y_true, y_pred = inpainter.inverse_transform_and_save_inpainted(X_idx, X_predicted, true_labels)
     avgndcg, avgp = inpainter.evaluate_results(X_idx, y_pred, y_true)
-    print(f'avgndcg: {avgndcg}, avgp: {avgp}')
+    print(f'strategy: {strategy}, avgndcg: {avgndcg}, avgp: {avgp}')
     
     print(f'y_true: {y_true[:10]}')
     print(f'y_pred: {y_pred[:10]}') 
@@ -229,6 +283,7 @@ def inpaint(
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--trained_model_path', metavar='FILE')
+    parser.add_argument('--strategy', type=str, default='full_noise', choices=['full_noise', 'renoise_features', 'original_features'])
     args = parser.parse_args()
 
     config_path = os.path.join(args.trained_model_path, 'config.toml')
@@ -248,4 +303,5 @@ if __name__ == '__main__':
         T_dict=raw_config['train']['T'],
         num_numerical_features=raw_config['num_numerical_features'],
         device=device,
+        strategy=args.strategy
     )
