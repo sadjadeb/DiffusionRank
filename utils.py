@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import random
 import torch.backends.cudnn as cudnn
+from sklearn.metrics import ndcg_score
 
 
 def set_all_seeds(seed):
@@ -45,3 +46,32 @@ class EarlyStopping:
                 self.counter = 0
         
         return self.early_stop
+
+
+def calculate_metrics(lables_tuples, k=10):
+    total_ndcg = 0
+    total_precision = 0
+    for qid, labels in lables_tuples.items():
+        # Extract true labels and predicted scores
+        true_labels = [t[0] for t in labels]
+        predicted_scores = [t[1] for t in labels]
+
+        # Sort based on predicted scores in descending order to calculate P@10
+        sorted_indices = sorted(range(len(predicted_scores)), key=lambda i: predicted_scores[i], reverse=True)
+        top_k_indices = sorted_indices[:k]
+
+        # Precision at k
+        relevant_at_k = sum(1 for i in top_k_indices if true_labels[i] > 0)
+        precision_at_k = relevant_at_k / k
+
+        # NDCG@k
+        ndcg_at_k = ndcg_score([true_labels], [predicted_scores], k=k)
+
+        total_ndcg += ndcg_at_k
+        total_precision += precision_at_k
+
+    # Calculate averages
+    avgndcg = total_ndcg / len(lables_tuples)
+    avgp = total_precision / len(lables_tuples)
+    
+    return avgndcg, avgp

@@ -5,14 +5,13 @@ import torch
 import lightgbm as lgb
 from tqdm import trange
 import wandb
-from sklearn.metrics import ndcg_score
 from argparse import ArgumentParser
 
 import generative.lib as lib
 from generative.tab_ddpm.gaussian_multinomial_diffsuion import GaussianMultinomialDiffusion
 from generative.tab_ddpm.modules import MLPDiffusion
 from generative.scripts.utils_train import make_dataset
-from utils import set_all_seeds
+from utils import set_all_seeds, calculate_metrics
 
 seed = 42
 set_all_seeds(seed)
@@ -139,30 +138,7 @@ def test(model, X_test, y_test, qids):
             results[qid] = []
         results[qid].append((y_test[i], predictions[i]))
     
-    total_precision = 0
-    total_ndcg = 0
-    for qid, labels in results.items():
-        # Extract true labels and predicted labels
-        true_labels = [t[0] for t in labels]
-        predicted_labels = [t[1] for t in labels]
-
-        # Sort based on predicted labels in descending order to calculate P@10
-        sorted_indices = sorted(range(len(predicted_labels)), key=lambda i: predicted_labels[i], reverse=True)
-        top_10_indices = sorted_indices[:10]
-
-        # Precision at 10
-        relevant_at_10 = sum(1 for i in top_10_indices if true_labels[i] > 0)
-        precision_at_10 = relevant_at_10 / 10
-
-        # NDCG@10
-        ndcg_at_10 = ndcg_score([true_labels], [predicted_labels], k=10)
-
-        total_ndcg += ndcg_at_10
-        total_precision += precision_at_10
-
-    # Calculate averages
-    avgp = total_precision / len(results)
-    avgndcg = total_ndcg / len(results)
+    avgndcg, avgp = calculate_metrics(results)
     
     return avgp, avgndcg
 

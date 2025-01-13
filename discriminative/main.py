@@ -11,7 +11,7 @@ import torch.optim as optim
 import math
 from model import DNN
 from data_loader import DataLoaderTrain, DataLoaderTest
-from utils import set_all_seeds
+from utils import set_all_seeds, calculate_metrics
 
 # Set random seeds for reproducibility
 seed = 42
@@ -84,30 +84,7 @@ def test(net, epoch, train_loss):
                     results[qids[i]] = []
                 results[qids[i]].append((labels[i], out[i][0]))
                 
-        avgp = 0
-        avgndcg = 0
-        for qid, docs in results.items():
-            dcg = 0
-            ranked = sorted(docs, key=lambda x: x[1], reverse=True)
-            
-            relevant_in_top10 = sum(1 for doc in ranked[:10] if doc[0] > 0)
-            p = relevant_in_top10 / min(10, len(ranked))
-            avgp += p
-            
-            for i in range(min(10, len(ranked))):
-                rank = i + 1
-                label = ranked[i][0]
-                dcg += ((2**label - 1) / math.log2(rank + 1))
-            idcg = 0
-            ranked = sorted(docs, key=lambda x: x[0], reverse=True)
-            for i in range(min(10, len(ranked))):
-                rank = i + 1
-                label = ranked[i][0]
-                idcg += ((2**label - 1) / math.log2(rank + 1))
-            if idcg > 0:
-                avgndcg += (dcg / idcg)
-        avgp /= len(results)
-        avgndcg /= len(results)
+        avgndcg, avgp = calculate_metrics(results)
         
         print(f'epoch:{epoch}, loss: {train_loss}, avgp: {avgp}, avgndcg: {avgndcg}')
 

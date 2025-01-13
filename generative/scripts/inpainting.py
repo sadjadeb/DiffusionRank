@@ -10,7 +10,7 @@ import argparse
 from tqdm import trange, tqdm
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
-from sklearn.metrics import ndcg_score
+from utils import calculate_metrics
 
 
 def index_to_log_onehot(x, num_classes):
@@ -167,30 +167,7 @@ class InPainter:
                 results[idx] = []
             results[idx].append((label_t, label_p))
         
-        total_ndcg = 0
-        total_precision = 0
-        for qid, labels in results.items():
-            # Extract true labels and predicted scores
-            true_labels = [t[0] for t in labels]
-            predicted_scores = [t[1] for t in labels]
-
-            # Sort based on predicted scores in descending order to calculate P@10
-            sorted_indices = sorted(range(len(predicted_scores)), key=lambda i: predicted_scores[i], reverse=True)
-            top_10_indices = sorted_indices[:10]
-
-            # Precision at 10
-            relevant_at_10 = sum(1 for i in top_10_indices if true_labels[i] > 0)
-            precision_at_10 = relevant_at_10 / 10
-
-            # NDCG@10
-            ndcg_at_10 = ndcg_score([true_labels], [predicted_scores], k=10)
-
-            total_ndcg += ndcg_at_10
-            total_precision += precision_at_10
-
-        # Calculate averages
-        avgp = total_precision / len(results)
-        avgndcg = total_ndcg / len(results)
+        avgndcg, avgp = calculate_metrics(results)
         
         return avgndcg, avgp
             
