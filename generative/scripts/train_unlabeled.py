@@ -21,13 +21,14 @@ def mean_flat(tensor):
 
 
 class Trainer:
-    def __init__(self, diffusion, train_iter, lr, weight_decay, steps, val_loader, device=torch.device('cuda:1'), train_with_labels=True):
+    def __init__(self, diffusion, train_iter, lr, weight_decay, steps, val_loader, approach, device=torch.device('cuda:1'), train_with_labels=True):
         self.diffusion = diffusion
         self.train_iter = train_iter
         self.steps = steps
         self.init_lr = lr
         self.optimizer = torch.optim.AdamW(self.diffusion.parameters(), lr=lr, weight_decay=weight_decay)
         self.val_loader = val_loader
+        self.approach = approach
         self.device = device
         self.train_with_labels = train_with_labels
         self.log_every = 100
@@ -44,10 +45,16 @@ class Trainer:
         for k in out_dict:
             out_dict[k] = out_dict[k].long().to(self.device)
         self.optimizer.zero_grad()
-        if self.train_with_labels:
-            loss_multi, loss_gauss = self.diffusion.mixed_loss(x, out_dict)
-        else:
-            loss_multi, loss_gauss = self.diffusion.mixed_loss_unlabeled(x, out_dict)
+        if self.approach == 'pointwise':
+            if self.train_with_labels:
+                loss_multi, loss_gauss = self.diffusion.mixed_loss(x, out_dict)
+            else:
+                loss_multi, loss_gauss = self.diffusion.mixed_loss_unlabeled(x, out_dict)
+        elif self.approach == 'pairwise':
+            if self.train_with_labels:
+                loss_multi, loss_gauss = self.diffusion.mixed_loss_pairwise(x, out_dict)
+            else:
+                loss_multi, loss_gauss = self.diffusion.mixed_loss_unlabeled_pairwise(x, out_dict)
         loss = loss_multi + loss_gauss
         
         loss.backward()
@@ -84,8 +91,15 @@ class Trainer:
                     
                     for x_val in self.val_loader:
                         x_val = x_val.to(self.device)
+                        if self.approach == 'pairwise':
+                            if x_val.shape[0] % 2 == 1:
+                                x_val = x_val[:-1]
+                        
                         val_count += len(x_val)
-                        loss_multi, loss_gauss = self.diffusion.mixed_loss(x_val, {})
+                        if self.approach == 'pointwise':
+                            loss_multi, loss_gauss = self.diffusion.mixed_loss(x_val, {})
+                        elif self.approach == 'pairwise':
+                            loss_multi, loss_gauss = self.diffusion.mixed_loss_pairwise(x_val, {})
                         val_loss_multi += loss_multi.item() * len(x_val)
                         val_loss_gauss += loss_gauss.item() * len(x_val)
                         
@@ -120,6 +134,7 @@ def train(
     T_dict = None,
     num_numerical_features = 0,
     seed = 42,
+    approach = 'pointwise',
     device = "cpu",
 ):
     real_data_path = os.path.normpath(real_data_path)
@@ -180,6 +195,7 @@ def train(
         weight_decay=weight_decay,
         steps=steps,
         val_loader=val_loader,
+        approach=approach,
         device=device,
         train_with_labels=False
     )
@@ -193,6 +209,7 @@ def train(
         weight_decay=weight_decay,
         steps=steps,
         val_loader=val_loader,
+        approach=approach,
         device=device,
         train_with_labels=True
     )
@@ -205,6 +222,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', metavar='FILE')
     parser.add_argument('--k', type=float)
+    parser.add_argument('--approach', type=str, default='pointwise', choices=['pointwise', 'pairwise'])
     args = parser.parse_args()
 
     raw_config = lib.load_config(args.config)
@@ -220,6 +238,8 @@ if __name__ == '__main__':
     else:
         raise ValueError("k must be specified")
         
+    if args.approach == 'pairwise':
+        experiment_id += "_pairwise"
     
     raw_config['parent_dir'] = raw_config['parent_dir'].format(dataset, experiment_id)
     os.makedirs(raw_config['parent_dir'], exist_ok=True)
@@ -237,6 +257,7 @@ if __name__ == '__main__':
         T_dict=raw_config['train']['T'],
         num_numerical_features=raw_config['num_numerical_features'],
         seed=raw_config['seed'],
+        approach=args.approach,
         device=device,
     )
     

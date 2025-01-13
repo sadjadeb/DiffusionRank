@@ -631,11 +631,11 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
 
         # Create a mask for the last feature
         feature_mask = torch.ones_like(x, dtype=torch.bool)
-        feature_mask[:, -1] = False  # Mark the last feature to be zeroed out
+        feature_mask[:, 0] = False  # Mark the label to be zeroed out
 
-        # Create a copy of x and zero out the last feature
+        # Create a copy of x and zero out the label
         x_masked = x.clone()
-        x_masked[:, -1] *= 0  # Set the last feature to zero
+        x_masked[:, 0] *= 0  # Set the label to zero
 
         # Scale factor calculation
         scale_factor = 1 + (1 / n)
@@ -675,6 +675,116 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
             loss_gauss = self._gaussian_loss(model_out_num, x_num, x_num_t, t, noise)
 
         return loss_multi.mean(), loss_gauss.mean()
+    
+    
+    @staticmethod
+    def make_pairwise_pairs(input_tensor):
+        input_tensor1 = input_tensor[0::2]
+        input_tensor2 = input_tensor[1::2]
+        
+        labels_diff = (input_tensor1[:, 0] - input_tensor2[:, 0]).unsqueeze(1)
+        rest_concat = torch.cat((input_tensor1[:, 1:], input_tensor2[:, 1:]), dim=1)
+        return torch.cat((labels_diff, rest_concat), dim=1)
+
+
+    def mixed_loss_pairwise(self, x, out_dict):
+        b = x.shape[0]
+        device = x.device
+        t, pt = self.sample_time(b, device, 'uniform')
+
+        x_num = x[:, :self.num_numerical_features]
+        x_cat = x[:, self.num_numerical_features:]
+        
+        x_num_t = x_num
+        log_x_cat_t = x_cat
+        if x_num.shape[1] > 0:
+            noise = torch.randn_like(x_num)
+            x_num_t = self.gaussian_q_sample(x_num, t, noise=noise)
+        if x_cat.shape[1] > 0:
+            log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
+            log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
+        
+        x_in = torch.cat([x_num_t, log_x_cat_t], dim=1)
+
+        model_out = self._denoise_fn(
+            x_in,
+            t,
+            **out_dict
+        )
+
+        model_out_num = model_out[:, :self.num_numerical_features]
+        model_out_cat = model_out[:, self.num_numerical_features:]
+        
+        model_out_num = self.make_pairwise_pairs(model_out_num)
+        noise = self.make_pairwise_pairs(noise)
+
+        loss_multi = torch.zeros((1,)).float()
+        loss_gauss = torch.zeros((1,)).float()
+        if x_cat.shape[1] > 0:
+            loss_multi = self._multinomial_loss(model_out_cat, log_x_cat, log_x_cat_t, t, pt, out_dict) / len(self.num_classes)
+        
+        if x_num.shape[1] > 0:
+            loss_gauss = self._gaussian_loss(model_out_num, x_num, x_num_t, t, noise)
+
+        return loss_multi.mean(), loss_gauss.mean()
+    
+        
+    def mixed_loss_unlabeled_pairwise(self, x, out_dict):
+        b = x.shape[0]
+        n = x.shape[1]  # Total number of features + label
+        device = x.device
+        t, pt = self.sample_time(b, device, 'uniform')
+
+        # Create a mask for the last feature
+        feature_mask = torch.ones_like(x, dtype=torch.bool)
+        feature_mask[:, 0] = False  # Mark the label to be zeroed out
+
+        # Create a copy of x and zero out the label
+        x_masked = x.clone()
+        x_masked[:, 0] *= 0  # Set the label to zero
+
+        # Scale factor calculation
+        scale_factor = 1 + (1 / n)
+
+        x_num = x_masked[:, :self.num_numerical_features]
+        x_cat = x_masked[:, self.num_numerical_features:]
+        
+        x_num_t = x_num
+        log_x_cat_t = x_cat
+        if x_num.shape[1] > 0:
+            noise = torch.randn_like(x_num)
+            x_num_t = self.gaussian_q_sample(x_num, t, noise=noise)
+        if x_cat.shape[1] > 0:
+            log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
+            log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
+        
+        x_in = torch.cat([x_num_t, log_x_cat_t], dim=1)
+
+        model_out = self._denoise_fn(
+            x_in,
+            t,
+            **out_dict
+        )
+
+        # Scale the model output by the calculated factor
+        model_out *= scale_factor
+
+        model_out_num = model_out[:, :self.num_numerical_features]
+        model_out_cat = model_out[:, self.num_numerical_features:]
+        
+        model_out_num = self.make_pairwise_pairs(model_out_num)
+        noise = self.make_pairwise_pairs(noise)
+
+        loss_multi = torch.zeros((1,)).float()
+        loss_gauss = torch.zeros((1,)).float()
+        if x_cat.shape[1] > 0:
+            loss_multi = self._multinomial_loss(model_out_cat, log_x_cat, log_x_cat_t, t, pt, out_dict) / len(self.num_classes)
+        
+        if x_num.shape[1] > 0:
+            loss_gauss = self._gaussian_loss(model_out_num, x_num, x_num_t, t, noise)
+
+        return loss_multi.mean(), loss_gauss.mean()
+    
     
     @torch.no_grad()
     def mixed_elbo(self, x0, out_dict):
