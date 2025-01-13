@@ -13,5 +13,4 @@
 **/**/__pycache__
 
 # Specific files and directories
-discriminative/hyperparameter_tuning_results*.txt
 environment.yml
