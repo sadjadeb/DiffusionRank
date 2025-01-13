@@ -108,6 +108,7 @@ class Trainer:
 def train(
     parent_dir,
     real_data_path,
+    whole_dataset_path,
     steps = 1000,
     lr = 0.002,
     weight_decay = 1e-4,
@@ -128,26 +129,34 @@ def train(
 
     T = lib.Transformations(**T_dict)
 
-    dataset = make_dataset(
+    fractioned_dataset = make_dataset(
         real_data_path,
         T,
         num_classes=model_params['num_classes'],
         is_y_cond=model_params['is_y_cond'],
-        has_splitted_data=True
+        has_splitted_data=False if "k1.0" in real_data_path else True
+    )
+    
+    whole_dataset = make_dataset(
+        whole_dataset_path,
+        T,
+        num_classes=model_params['num_classes'],
+        is_y_cond=model_params['is_y_cond'],
+        has_splitted_data=False
     )
 
-    K = np.array(dataset.get_category_sizes('train'))
+    K = np.array(whole_dataset.get_category_sizes('train'))
     if len(K) == 0 or T_dict['cat_encoding'] == 'one-hot':
         K = np.array([0])
 
-    num_numerical_features = dataset.X_num['train'].shape[1] if dataset.X_num is not None else 0
+    num_numerical_features = whole_dataset.X_num['train'].shape[1] if whole_dataset.X_num is not None else 0
     d_in = np.sum(K) + num_numerical_features
     model_params['d_in'] = d_in
 
-    train_loader = lib.prepare_fast_dataloader(dataset, split='train', batch_size=batch_size)
-    train_loader_unlabeled = lib.prepare_fast_dataloader(dataset, split='train_non', batch_size=batch_size)
+    train_loader = lib.prepare_fast_dataloader(fractioned_dataset, split='train', batch_size=batch_size)
+    train_loader_unlabeled = lib.prepare_fast_dataloader(whole_dataset, split='train', batch_size=batch_size)
 
-    X_val = torch.from_numpy(dataset.X_num["val"]).float()
+    X_val = torch.from_numpy(fractioned_dataset.X_num["val"]).float()
     val_loader = DataLoader(X_val, batch_size=batch_size, shuffle=False)
 
     model = MLPDiffusion(**model_params).to(device)
@@ -202,13 +211,14 @@ if __name__ == '__main__':
     device = torch.device(raw_config['device'])
     dataset = raw_config['dataset']
     
+    whole_dataset_path = raw_config['real_data_path'].format(dataset, "k1.0")
+    
     if args.k is not None:
         experiment_id = f"k{args.k}"
         raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, experiment_id)
-        experiment_id += "_unlabeled"
+        experiment_id += "_unlabeled_whole_pretrained"
     else:
-        experiment_id = time.strftime('%Y-%m-%d_%H-%M-%S')
-        raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, "k1.0")
+        raise ValueError("k must be specified")
         
     
     raw_config['parent_dir'] = raw_config['parent_dir'].format(dataset, experiment_id)
@@ -222,6 +232,7 @@ if __name__ == '__main__':
         **raw_config['diffusion_params'],
         parent_dir=raw_config['parent_dir'],
         real_data_path=raw_config['real_data_path'],
+        whole_dataset_path=whole_dataset_path,
         model_params=raw_config['model_params'],
         T_dict=raw_config['train']['T'],
         num_numerical_features=raw_config['num_numerical_features'],
