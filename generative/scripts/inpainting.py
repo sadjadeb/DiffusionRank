@@ -263,7 +263,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     config_path = os.path.join(args.trained_model_path, 'config.toml')
-    model_path = os.path.join(args.trained_model_path, 'model.pt')
+    model_path = os.path.join(args.trained_model_path, 'model.best.pt')
     raw_config = lib.load_config(config_path)
     
     device = torch.device(raw_config['device'])

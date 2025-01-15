@@ -58,6 +58,9 @@ class Trainer:
     def run_loop(self):
         curr_loss_multi = 0.0
         curr_loss_gauss = 0.0
+        
+        best_val_loss = float('inf')
+        best_model_state = None
 
         curr_count = 0
         for step in trange(self.steps):
@@ -99,6 +102,10 @@ class Trainer:
                     val_mloss = np.around(val_loss_multi / val_count, 4)
                     val_gloss = np.around(val_loss_gauss / val_count, 4)
                     val_loss = val_mloss + val_gloss
+                    
+                    if val_loss < best_val_loss:
+                        best_val_loss = val_loss
+                        best_model_state = self.diffusion._denoise_fn.state_dict()
                      
                     
                     self.diffusion.train()
@@ -110,6 +117,8 @@ class Trainer:
                 curr_count = 0
                 curr_loss_gauss = 0.0
                 curr_loss_multi = 0.0
+                
+        return best_model_state
 
 
 def train(
@@ -179,9 +188,10 @@ def train(
         approach=approach,
         device=device
     )
-    trainer.run_loop()
+    best_model_state = trainer.run_loop()
 
-    torch.save(diffusion._denoise_fn.state_dict(), os.path.join(parent_dir, 'model.pt'))
+    torch.save(diffusion._denoise_fn.state_dict(), os.path.join(parent_dir, 'model.final.pt'))
+    torch.save(best_model_state, os.path.join(parent_dir, 'model.best.pt'))
 
   
 if __name__ == '__main__':
