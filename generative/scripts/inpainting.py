@@ -144,7 +144,7 @@ class InPainter:
         #     np.save(os.path.join(self.parent_dir, 'X_cat_inpainted'), X_cat[:, self.diffusion.num_numerical_features:])
 
         if self.dataset.num_transform is not None:
-            X_num= self.dataset.num_transform.inverse_transform(X_predicted[:, :self.diffusion.num_numerical_features])
+            X_num = self.dataset.num_transform.inverse_transform(X_predicted[:, :self.diffusion.num_numerical_features])
         else:
             X_num = X_predicted[:, :self.diffusion.num_numerical_features]
             
@@ -213,14 +213,7 @@ def inpaint(
     model = MLPDiffusion(**model_params)
     model.load_state_dict(torch.load(model_path, map_location="cpu"))
 
-    X = torch.from_numpy(D.X_num["test"]).float()
-    X_idx = torch.from_numpy(np.load(os.path.join(real_data_path, "idx_test.npy"), allow_pickle=True))
-    
-    # replace real labels with random labels
-    labels = X[:, 0]
-    labels_unique = torch.unique(labels)
-    random_indices = torch.randint(len(labels_unique), (X.size(0),))
-    X[:, 0] = labels_unique[random_indices]
+    X = D.X_num["test"]
     
     # Get the original labels to evaluate inpainting; As the features are normalized, we need to inverse transform them
     if D.num_transform is not None:
@@ -230,6 +223,14 @@ def inpaint(
     true_labels = X_unnorm[:, 0]
     true_labels = np.round(true_labels, decimals=6)
 
+    # replace real labels with random labels
+    current_labels = X[:, 0]
+    labels_unique = np.unique(current_labels)
+    random_labels = np.random.choice(labels_unique, size=X.shape[0], replace=True)
+    X[:, 0] = random_labels
+    
+    X = torch.from_numpy(X).float()
+    X_idx = torch.from_numpy(np.load(os.path.join(real_data_path, "idx_test.npy"), allow_pickle=True))
     test_loader = DataLoader(X, batch_size=batch_size, shuffle=False)
     test_loader_idx = DataLoader(X_idx, batch_size=batch_size, shuffle=False)
 
@@ -252,8 +253,6 @@ def inpaint(
     avgndcg, avgp = inpainter.evaluate_results(X_idx, y_pred, y_true)
     print(f'strategy: {strategy}, avgndcg: {avgndcg}, avgp: {avgp}')
     
-    print(f'y_true: {y_true[:10]}')
-    print(f'y_pred: {y_pred[:10]}') 
     
     
     
