@@ -52,6 +52,9 @@ def calculate_metrics(lables_tuples, k=10):
     total_ndcg = 0
     total_precision = 0
     for qid, labels in lables_tuples.items():
+        if len(labels) <= 1:
+            continue
+        
         # Extract true labels and predicted scores
         true_labels = [t[0] for t in labels]
         predicted_scores = [t[1] for t in labels]
