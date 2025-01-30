@@ -84,7 +84,7 @@ def sample(
 
     if num_numerical_features_ != 0:
         # _, normalize = lib.normalize({'train' : X_num_real}, T_dict['normalization'], T_dict['seed'], True)
-        np.save(os.path.join(parent_dir, 'X_num_unnorm'), X_gen[:, :num_numerical_features])
+        # np.save(os.path.join(parent_dir, 'X_num_unnorm'), X_gen[:, :num_numerical_features])
         X_num_ = D.num_transform.inverse_transform(X_gen[:, :num_numerical_features])
         X_num = X_num_[:, :num_numerical_features]
 
@@ -103,7 +103,7 @@ def sample(
 
     if num_numerical_features != 0:
         print("Num shape: ", X_num.shape)
-        np.save(os.path.join(parent_dir, 'X_num_train'), X_num)
+        np.save(os.path.join(parent_dir, 'X_num_sampled'), X_num)
     if num_numerical_features < X_gen.shape[1]:
-        np.save(os.path.join(parent_dir, 'X_cat_train'), X_cat)
-    np.save(os.path.join(parent_dir, 'y_train'), y_gen)
+        np.save(os.path.join(parent_dir, 'X_cat_sampled'), X_cat)
+    np.save(os.path.join(parent_dir, 'y_sampled'), y_gen)
