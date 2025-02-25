@@ -17,18 +17,22 @@ def make_dataset(
     is_y_cond: bool,
     has_splitted_data: bool = False
 ):
-    # classification
+    variations = ['train', 'val', 'test']
+    if has_splitted_data:
+        variations.append('train_non')
+        
     if num_classes > 0:
+        # classification
         X_cat = {} if os.path.exists(os.path.join(data_path, 'X_cat_train.npy')) or not is_y_cond else None
         X_num = {} if os.path.exists(os.path.join(data_path, 'X_num_train.npy')) else None
         y = {} 
 
-        for split in ['train', 'val', 'test']:
+        for split in variations:
             X_num_t, X_cat_t, y_t = lib.read_pure_data(data_path, split)
-            if X_num is not None:
-                X_num[split] = X_num_t
             if not is_y_cond:
                 X_cat_t = concat_y_to_X(X_cat_t, y_t)
+            if X_num is not None:
+                X_num[split] = X_num_t
             if X_cat is not None:
                 X_cat[split] = X_cat_t
             y[split] = y_t
@@ -38,9 +42,6 @@ def make_dataset(
         X_num = {} if os.path.exists(os.path.join(data_path, 'X_num_train.npy')) or not is_y_cond else None
         y = {}
         
-        variations = ['train', 'val', 'test']
-        if has_splitted_data:
-            variations.append('train_non')
 
         for split in variations:
             X_num_t, X_cat_t, y_t = lib.read_pure_data(data_path, split)
