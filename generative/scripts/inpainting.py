@@ -40,6 +40,7 @@ class InPainter:
         
         X_idx = []
         X_predicted = []
+        X_num_noisy = []
         for batch, batch_idx in tqdm(zip(self.test_loader, self.test_loader_idx), desc='Batches', total=len(self.test_loader), position=0):
             b = batch.size(0)
             batch = batch.to(device)
@@ -53,6 +54,7 @@ class InPainter:
             
             # it automatically adds noise to the given input for t number of steps
             x_num_t = self.diffusion.gaussian_q_sample(x_num, t_max)
+            x_num_noisy = x_num_t.clone()
             
             if self.strategy == 'full_noise':
                 log_x_cat_t = torch.zeros((b, 0), device=device).float()
@@ -60,7 +62,7 @@ class InPainter:
                     log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
                     log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
 
-                for i in trange(self.diffusion.num_timesteps - 1, -1, -1, desc='Inpainting', position=1, leave=False):
+                for i in range(self.diffusion.num_timesteps - 1, -1, -1):
                     t = torch.full((b,), i, device=device, dtype=torch.long)
                     model_out = self.diffusion._denoise_fn(
                         torch.cat([x_num_t, log_x_cat_t], dim=1).float(),
@@ -87,7 +89,7 @@ class InPainter:
                     log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
                     log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
                 
-                for i in trange(self.diffusion.num_timesteps - 1, -1, -1, desc='Inpainting', position=1, leave=False):
+                for i in range(self.diffusion.num_timesteps - 1, -1, -1):
                     t = torch.full((b,), i, device=device, dtype=torch.long)
                     model_out = self.diffusion._denoise_fn(
                         torch.cat([x_num_t, log_x_cat_t], dim=1).float(),
@@ -111,7 +113,7 @@ class InPainter:
                     log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
                     log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
 
-                for i in trange(self.diffusion.num_timesteps - 1, -1, -1, desc='Inpainting', position=1, leave=False):
+                for i in range(self.diffusion.num_timesteps - 1, -1, -1):
                     t = torch.full((b,), i, device=device, dtype=torch.long)
                     model_out = self.diffusion._denoise_fn(
                         torch.cat([x_num_t, log_x_cat_t], dim=1).float(),
@@ -127,15 +129,17 @@ class InPainter:
             
             X_idx.append(batch_idx)
             X_predicted.append(x_num_t)
+            X_num_noisy.append(x_num_noisy)
             
             
         X_idx = torch.cat(X_idx, dim=0).cpu()
         X_predicted = torch.cat(X_predicted, dim=0).cpu()
+        X_num_noisy = torch.cat(X_num_noisy, dim=0).cpu()
         
-        return X_idx, X_predicted
+        return X_idx, X_predicted, X_num_noisy
         
     
-    def inverse_transform_and_save_inpainted(self, X_idx, X_predicted, y_true):
+    def inverse_transform_and_save_inpainted(self, X_idx, X_predicted, y_true, y_index=0):
         # if self.diffusion.num_numerical_features < X_predicted.shape[1]:
         #     np.save(os.path.join(self.parent_dir, 'X_cat_unnorm'), X_predicted[:, self.diffusion.num_numerical_features:])
         #     if T_dict['cat_encoding'] == 'one-hot':
@@ -148,9 +152,9 @@ class InPainter:
         else:
             X_num = X_predicted[:, :self.diffusion.num_numerical_features]
             
-        y_pred = X_num[:, 0]
+        y_pred = X_num[:, y_index]
             
-        np.save(os.path.join(self.parent_dir, 'X_num_unnorm'), X_predicted[:, :self.diffusion.num_numerical_features])
+        # np.save(os.path.join(self.parent_dir, 'X_num_unnorm'), X_predicted[:, :self.diffusion.num_numerical_features])
         np.save(os.path.join(self.parent_dir, 'X_num_inpainted'), X_num[:, :self.diffusion.num_numerical_features])
         np.save(os.path.join(self.parent_dir, 'X_idx'), X_idx)
         np.save(os.path.join(self.parent_dir, 'y_pred'), y_pred)
@@ -169,8 +173,21 @@ class InPainter:
         
         avgndcg, avgp = calculate_metrics(results)
         
+        # calculate the mse between true and predicted labels
+        mse = np.mean((y_true - y_pred) ** 2)
+        y_true_min, y_true_max = np.min(y_true), np.max(y_true)
+        y_pred_min, y_pred_max = np.min(y_pred), np.max(y_pred)
+        print(f'MSE: {mse}')
+        print(f'y_true_max: {y_true_max:.2f}, y_true_min: {y_true_min:.2f}')
+        print(f'y_pred_max: {y_pred_max:.2f}, y_pred_min: {y_pred_min:.2f}')
+        
+        with open(os.path.join(self.parent_dir, f'results.{self.strategy}.txt'), 'w') as f:
+            f.write('qid\ttrue\tpred\n')
+            for idx, labels in results.items():
+                for label_t, label_p in labels:
+                    f.write(f'{idx}\t{label_t}\t{label_p:.6f}\n')
+
         return avgndcg, avgp
-            
 
 
 
@@ -187,6 +204,7 @@ def inpaint(
     num_numerical_features = 0,
     device = "cpu",
     strategy = 'full_noise',
+    y_index = 0
 ):
     
     real_data_path = os.path.normpath(real_data_path)
@@ -220,14 +238,14 @@ def inpaint(
         X_unnorm = D.num_transform.inverse_transform(X)
     else:
         X_unnorm = X
-    true_labels = X_unnorm[:, 0]
+    true_labels = X_unnorm[:, y_index]
     true_labels = np.round(true_labels, decimals=6)
 
     # replace real labels with random labels
-    current_labels = X[:, 0]
+    current_labels = X[:, y_index]
     labels_unique = np.unique(current_labels)
     random_labels = np.random.choice(labels_unique, size=X.shape[0], replace=True)
-    X[:, 0] = random_labels
+    X[:, y_index] = random_labels
     
     X = torch.from_numpy(X).float()
     X_idx = torch.from_numpy(np.load(os.path.join(real_data_path, "idx_test.npy"), allow_pickle=True))
@@ -248,8 +266,8 @@ def inpaint(
     diffusion.eval()
     
     inpainter = InPainter(diffusion, strategy, D, parent_dir, test_loader, test_loader_idx, device)
-    X_idx, X_predicted= inpainter.run_loop()
-    X_idx, X_num, y_true, y_pred = inpainter.inverse_transform_and_save_inpainted(X_idx, X_predicted, true_labels)
+    X_idx, X_predicted, X_predicted_noisy = inpainter.run_loop()
+    X_idx, X_num, y_true, y_pred = inpainter.inverse_transform_and_save_inpainted(X_idx, X_predicted, true_labels, y_index=y_index)
     avgndcg, avgp = inpainter.evaluate_results(X_idx, y_pred, y_true)
     print(f'strategy: {strategy}, avgndcg: {avgndcg}, avgp: {avgp}')
     
@@ -260,7 +278,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--trained_model_path', metavar='FILE')
     parser.add_argument('--strategy', type=str, default='full_noise', choices=['full_noise', 'renoise_features', 'original_features'])
+    parser.add_argument('--y_index', type=int, default=0)
     args = parser.parse_args()
+    
+    print(f'Inpainting with strategy: {args.strategy} by {args.trained_model_path} for index {args.y_index}')
 
     config_path = os.path.join(args.trained_model_path, 'config.toml')
     model_path = os.path.join(args.trained_model_path, 'model.best.pt')
@@ -279,5 +300,6 @@ if __name__ == '__main__':
         T_dict=raw_config['train']['T'],
         num_numerical_features=raw_config['num_numerical_features'],
         device=device,
-        strategy=args.strategy
+        strategy=args.strategy,
+        y_index=args.y_index
     )
