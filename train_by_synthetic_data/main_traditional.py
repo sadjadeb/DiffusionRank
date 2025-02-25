@@ -3,7 +3,6 @@ import math
 import numpy as np
 import torch
 import lightgbm as lgb
-from tqdm import trange
 import wandb
 from argparse import ArgumentParser
 
@@ -33,7 +32,7 @@ dataset = 'MQ2007'  # ['MQ2007', 'MQ2008', 'MSLR-Web10K', 'MSLR-Web30K']
 device = torch.device("cuda:1")
 features_count = 136 if 'MSLR' in dataset else 46
 
-# LightGBM specific parameters
+# LightGBM specific parameters for pointwise approach
 lgb_params = {
     'objective': 'regression',
     'metric': 'rmse',
@@ -44,14 +43,27 @@ lgb_params = {
     'verbose': -1
 }
 
+# LightGBM specific parameters for pairwise approach
+# lgb_params = {
+#     'objective': 'lambdarank',
+#     'metric': 'ndcg',
+#     "ndcg_eval_at": [1, 3, 5, 10],
+#     'boosting_type': 'gbdt',
+#     'num_leaves': 31,
+#     'learning_rate': 0.05,
+#     'feature_fraction': 0.8,
+#     'verbose': -1
+# }
+
+
 # Set data paths
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 model_output_file_path = os.path.join('experiments', 'traditional', f"sub{sub_exp_no}", f"ltr.{dataset}.p{p_value}.k{k_value}.txt")
 
 if sub_exp_no == 1:
-    generative_experiment_id = f"exp_k{k_value}"
+    generative_experiment_id = f"exp_k{k_value}_standard"
 elif sub_exp_no == 2:
-    generative_experiment_id = f"exp_k{k_value}_unlabeled"
+    generative_experiment_id = f"exp_k{k_value}_unlabeled_standard"
 generative_config_path = os.path.join('..', 'generative', 'experiments', 'MQ2007', generative_experiment_id, 'config.toml')
 raw_config = lib.load_config(generative_config_path)
 
@@ -68,7 +80,7 @@ num_synthetic_data = int(data_len * p_value)
 num_real_data = data_len - num_synthetic_data
 print(f"Using {num_synthetic_data} synthetic data points and {num_real_data} real data points in whole batch with size {data_len}")
 
-wandb.init(project=f"ltr_by_synthetic_{dataset}_sub{sub_exp_no}_{approach}_traditional", name=f"exp_p{p_value}_k{k_value}", group=f"{k_value}")
+wandb.init(project=f"ltr_by_synthetic_{dataset}_sub{sub_exp_no}_{approach}_traditional_standard", name=f"exp_p{p_value}_k{k_value}", group=f"{k_value}")
 wandb.config.update({
     "p": p_value,
     "k": k_value,

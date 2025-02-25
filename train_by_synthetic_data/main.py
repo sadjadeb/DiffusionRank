@@ -24,6 +24,7 @@ parser = ArgumentParser()
 parser.add_argument('--p', type=float)
 parser.add_argument('--k', type=float)
 parser.add_argument('--sub', type=int, choices=[1, 2], help="When sub=2, it uses the generative model that partially trained with unlabeled data.")
+parser.add_argument('--device', default="cuda:3", help="Device to run the model on.")
 args = parser.parse_args()
 
 p_value = args.p
@@ -34,11 +35,11 @@ approach = 'pointwise'  # ['pointwise', 'pairwise']
 dataset = 'MQ2007'  # ['MQ2007', 'MQ2008', 'MSLR-Web10K', 'MSLR-Web30K']
 
 # Set hyperparameters
-device = torch.device("cuda:3")
+device = torch.device(args.device)
 features_count = 136 if 'MSLR' in dataset else 46
-num_epochs = 300
-dropout_rate = 0.2
-learning_rate = 2e-5
+num_epochs = 400
+dropout_rate = 0.1
+learning_rate = 1e-5
 batch_size = 1024
 early_stopping_patience = 15
 early_stopping_min_delta = 0.001
@@ -48,19 +49,19 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 data_dir = os.path.join(project_root, 'data', dataset, 'raw', 'Fold1')
 train_data_file = os.path.join(data_dir, 'train.txt')
 test_data_file = os.path.join(data_dir, 'test.txt')
-model_output_file_path = os.path.join('experiments', f"sub{sub_exp_no}", f"ltr.{dataset}.p{p_value}.k{k_value}.pt")
+model_output_save_path = os.path.join('experiments', 'neural', f"sub{sub_exp_no}")
 
 num_synthetic_data_in_batch = int(batch_size * p_value)
 num_real_data_in_batch = batch_size - num_synthetic_data_in_batch
 print(f"Using {num_synthetic_data_in_batch} synthetic data points and {num_real_data_in_batch} real data points in whole batch with size {batch_size}")
 
 if sub_exp_no == 1:
-    generative_experiment_id = f"exp_k{k_value}"
+    generative_experiment_id = f"exp_k{k_value}_standard"
 elif sub_exp_no == 2:
-    generative_experiment_id = f"exp_k{k_value}_unlabeled"
+    generative_experiment_id = f"exp_k{k_value}_unlabeled_standard"
 generative_config_path = os.path.join('..', 'generative', 'experiments', 'MQ2007', generative_experiment_id, 'config.toml')
 
-wandb.init(project=f"ltr_by_synthetic_{dataset}_sub{sub_exp_no}_{approach}", name=f"exp_p{p_value}_k{k_value}", group=f"{k_value}")
+wandb.init(project=f"ltr_by_synthetic_{dataset}_sub{sub_exp_no}_{approach}_standard", name=f"exp_p{p_value}_k{k_value}", group=f"{k_value}")
 wandb.config.update({
     "p": p_value,
     "k": k_value,
@@ -263,12 +264,14 @@ if __name__ == '__main__':
             print(f'Early stopping triggered at epoch {epoch + 1}')
             break
 
+    final_model_save_path = os.path.join(model_output_save_path, f"ltr.{dataset}.p{p_value}.k{k_value}.final.pt")
+    best_model_save_path = os.path.join(model_output_save_path, f"ltr.{dataset}.p{p_value}.k{k_value}.best.pt")
+    
+    # Save model
+    torch.save(net.state_dict(), final_model_save_path)
+    print('Final model saved to {}'.format(final_model_save_path))
 
-    # Load best model before saving
-    if best_model_state is not None:
-        net.load_state_dict(best_model_state)
+    torch.save(best_model_state, best_model_save_path)
+    print('Best model saved to {}'.format(best_model_save_path))
 
-    # save model
-    torch.save(net.state_dict(), model_output_file_path)
-    print('Model saved to {}'.format(model_output_file_path))
     wandb.finish()
