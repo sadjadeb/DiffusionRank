@@ -10,6 +10,7 @@ import argparse
 from tqdm import trange, tqdm
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from utils_train import plot_inpainting_outputs
 from utils import calculate_metrics
 
 
@@ -271,7 +272,7 @@ def inpaint(
     avgndcg, avgp = inpainter.evaluate_results(X_idx, y_pred, y_true)
     print(f'strategy: {strategy}, avgndcg: {avgndcg}, avgp: {avgp}')
     
-    
+    plot_inpainting_outputs(parent_dir, y_index, D, X_unnorm, X_num, X_predicted_noisy, y_pred, strategy)  
     
     
 if __name__ == '__main__':

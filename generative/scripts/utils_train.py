@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -65,3 +67,56 @@ def make_dataset(
     )
     
     return lib.transform_dataset(D, T, None)
+
+
+def plot_inpainting_outputs(parent_dir, y_index, D, X_unnorm, X_num, X_predicted_noisy, y_pred, strategy):
+    fig_save_path = os.path.join(parent_dir, 'figs')
+    os.makedirs(fig_save_path, exist_ok=True)
+    
+    plt.figure(figsize=(8, 5))
+    sns.histplot(D.X_num['train'][:, y_index], bins=20, kde=True, color='blue', alpha=0.7)
+    plt.title(f'Distribution of index {y_index}', fontsize=16)
+    plt.xlabel('Value', fontsize=14)
+    plt.ylabel('Frequency', fontsize=14)
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    plt.savefig(os.path.join(parent_dir, 'figs', f'normalized_distribution.{y_index}.png'))
+    plt.clf()
+    
+    
+    # plot pred labels
+    sorted_y_pred = np.sort(y_pred)
+    x = np.arange(len(sorted_y_pred))
+
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+    plt.scatter(x, sorted_y_pred, alpha=0.6, s=20)  # alpha controls transparency, s controls point size
+    plt.title(f'Data Points Visualization for index {y_index}', fontsize=14)
+    plt.xlabel('Index')
+    plt.ylabel('Value')
+    plt.grid(True, which='major', linestyle='-', linewidth=0.8, alpha=0.8)
+    plt.grid(True, which='minor', linestyle=':', linewidth=0.5, alpha=0.5)
+    plt.minorticks_on()  # Enable minor ticks
+    plt.savefig(os.path.join(parent_dir, 'figs', f'scatter_plot.{strategy}.{y_index}.png'))
+    plt.clf()
+    
+
+    # Set the style and figure size
+    X_predicted_noisy = X_predicted_noisy.numpy()
+
+    plt.figure(figsize=(10, 6))
+    # Create the density plots
+    sns.kdeplot(data=X_unnorm[:, y_index], label='Original Values', fill=True, alpha=0.5)
+    sns.kdeplot(data=X_predicted_noisy[:, y_index], label='Original Values + Noise', fill=True, alpha=0.5)
+    sns.kdeplot(data=X_num[:, y_index], label='Predicted Values', fill=True, alpha=0.5)
+    
+    sns.despine()
+
+    plt.xlabel(f"Density of Data Points for index {y_index}", fontsize=12)
+    plt.ylabel("Density", fontsize=12)
+    plt.title("Density Plot", fontsize=14)
+    plt.legend(loc='upper right')
+    plt.tight_layout()
+    plt.savefig(os.path.join(parent_dir, 'figs', f'density_plot.{strategy}.{y_index}.png'))
+    
