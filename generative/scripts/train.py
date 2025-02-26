@@ -30,8 +30,7 @@ class Trainer:
         self.val_loader = val_loader
         self.approach = approach
         self.device = device
-        self.log_every = 100
-        self.print_every = 500
+        self.log_every = 50
 
     def _anneal_lr(self, step):
         frac_done = step / self.steps
@@ -77,42 +76,42 @@ class Trainer:
             if (step + 1) % self.log_every == 0:
                 mloss = np.around(curr_loss_multi / curr_count, 4)
                 gloss = np.around(curr_loss_gauss / curr_count, 4)
-                if (step + 1) % self.print_every == 0:
+                self.diffusion.eval()
+                
+                val_count = 0
+                val_loss_multi = 0.0
+                val_loss_gauss = 0.0
+                
+                for x_val, out_dict in self.val_loader:
+                    x_val = x_val.to(self.device)
+                    # out_dict = {'y': out_dict.long().to(self.device)}
+                    out_dict = {}
+                    if self.approach == 'pairwise':
+                        if x_val.shape[0] % 2 == 1:
+                            x_val = x_val[:-1]
                     
-                    self.diffusion.eval()
+                    val_count += len(x_val)
+                    if self.approach == 'pointwise':
+                        loss_multi, loss_gauss = self.diffusion.mixed_loss(x_val, out_dict)
+                    elif self.approach == 'pairwise':
+                        loss_multi, loss_gauss = self.diffusion.mixed_loss_pairwise(x_val, out_dict)
+                    val_loss_multi += loss_multi.item() * len(x_val)
+                    val_loss_gauss += loss_gauss.item() * len(x_val)
                     
-                    val_count = 0
-                    val_loss_multi = 0.0
-                    val_loss_gauss = 0.0
+                val_mloss = np.around(val_loss_multi / val_count, 4)
+                val_gloss = np.around(val_loss_gauss / val_count, 4)
+                val_loss = val_mloss + val_gloss
+                
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    best_model_state = self.diffusion._denoise_fn.state_dict()
                     
-                    for x_val in self.val_loader:
-                        x_val = x_val.to(self.device)
-                        if self.approach == 'pairwise':
-                            if x_val.shape[0] % 2 == 1:
-                                x_val = x_val[:-1]
-                        
-                        val_count += len(x_val)
-                        if self.approach == 'pointwise':
-                            loss_multi, loss_gauss = self.diffusion.mixed_loss(x_val, {})
-                        elif self.approach == 'pairwise':
-                            loss_multi, loss_gauss = self.diffusion.mixed_loss_pairwise(x_val, {})
-                        val_loss_multi += loss_multi.item() * len(x_val)
-                        val_loss_gauss += loss_gauss.item() * len(x_val)
-                        
-                    val_mloss = np.around(val_loss_multi / val_count, 4)
-                    val_gloss = np.around(val_loss_gauss / val_count, 4)
-                    val_loss = val_mloss + val_gloss
-                    
-                    if val_loss < best_val_loss:
-                        best_val_loss = val_loss
-                        best_model_state = self.diffusion._denoise_fn.state_dict()
-                     
-                    
-                    self.diffusion.train()
-                    
-                    # print(f'Step {step}/{self.steps} MLoss: {mloss} GLoss: {gloss} Sum: {mloss + gloss} Validation Loss: {val_loss}')
-                    # log to wandb
-                    wandb.log({'loss': mloss + gloss, 'val_loss': val_loss})
+                
+                self.diffusion.train()
+                
+                # print(f'Step {step}/{self.steps} MLoss: {mloss} GLoss: {gloss} Sum: {mloss + gloss} Validation Loss: {val_loss}')
+                # log to wandb
+                wandb.log({'loss': mloss + gloss, 'val_loss': val_loss, 'mloss': mloss, 'gloss': gloss, 'val_mloss': val_mloss, 'val_gloss': val_gloss})
                 
                 curr_count = 0
                 curr_loss_gauss = 0.0
@@ -161,9 +160,7 @@ def train(
     model_params['d_in'] = d_in
 
     train_loader = lib.prepare_fast_dataloader(dataset, split='train', batch_size=batch_size)
-
-    X_val = torch.from_numpy(dataset.X_num["val"]).float()
-    val_loader = DataLoader(X_val, batch_size=batch_size, shuffle=False)
+    val_loader = lib.prepare_fast_torch_dataloader(dataset, split='val', batch_size=batch_size)
 
     model = MLPDiffusion(**model_params).to(device)
     diffusion = GaussianMultinomialDiffusion(
