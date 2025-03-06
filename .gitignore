@@ -15,3 +15,5 @@
 
 # Specific files and directories
 environment.yml
+/automated_run_scripts
+**/pt_experiments
