@@ -3,7 +3,7 @@ import os
 import numpy as np
 import zero
 import lib
-from tab_ddpm import GaussianMultinomialDiffusion
+from tab_ddpm import GaussianMultinomialDiffusion, ohe_to_categories
 from utils_train import make_dataset
 from tab_ddpm.modules import MLPDiffusion
 import argparse
@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from utils_train import plot_inpainting_outputs
 from utils import calculate_metrics
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
 
 def index_to_log_onehot(x, num_classes):
@@ -43,13 +44,14 @@ class InPainter:
         X_predicted = []
         X_num_noisy = []
         for batch, batch_idx in tqdm(zip(self.test_loader, self.test_loader_idx), desc='Batches', total=len(self.test_loader), position=0):
+            if type(batch) == tuple:
+                batch = batch[0]
+            
             b = batch.size(0)
             batch = batch.to(device)
             
             x_num = batch[:, :self.diffusion.num_numerical_features]
             x_cat = batch[:, self.diffusion.num_numerical_features:]
-            
-            original_features = batch[:, 1:self.diffusion.num_numerical_features]
             
             t_max = torch.full((b,), self.diffusion.num_timesteps - 1, device=device, dtype=torch.long)
             
@@ -57,12 +59,17 @@ class InPainter:
             x_num_t = self.diffusion.gaussian_q_sample(x_num, t_max)
             x_num_noisy = x_num_t.clone()
             
+            log_x_cat_t = x_cat
+            if has_cat:
+                log_x_cat = index_to_log_onehot(x_cat.long(), self.diffusion.num_classes)
+                log_x_cat_t = self.diffusion.q_sample(log_x_start=log_x_cat, t=t_max)
+                
+            if has_cat:
+                original_features = batch[:, :self.diffusion.num_numerical_features]
+            else:
+                original_features = batch[:, 1:self.diffusion.num_numerical_features]
+            
             if self.strategy == 'full_noise':
-                log_x_cat_t = torch.zeros((b, 0), device=device).float()
-                if has_cat:
-                    log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
-                    log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
-
                 for i in range(self.diffusion.num_timesteps - 1, -1, -1):
                     t = torch.full((b,), i, device=device, dtype=torch.long)
                     model_out = self.diffusion._denoise_fn(
@@ -74,22 +81,12 @@ class InPainter:
                     model_out_cat = model_out[:, self.diffusion.num_numerical_features:]
                     x_num_t = self.diffusion.gaussian_p_sample(model_out_num, x_num_t, t, clip_denoised=False)['sample']
                     
-                #     if has_cat:
-                #         log_x_cat_t = self.diffusion.p_sample(model_out_cat, log_x_cat_t, t, out_dict)
-                    
-                # if has_cat:
-                #     z_ohe = torch.exp(log_x_cat_t).round()
-                #     z_cat = log_x_cat_t
-                #     z_cat = self.diffusion.ohe_to_categories(z_ohe, self.num_classes)
+                    if has_cat:
+                        log_x_cat_t = self.diffusion.p_sample(model_out_cat, log_x_cat_t, t, {})
                 
             elif self.strategy == 'renoise_features':
                 fixed_noise = torch.randn_like(original_features)
                 
-                log_x_cat_t = torch.zeros((b, 0), device=device).float()
-                if has_cat:
-                    log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
-                    log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
-                
                 for i in range(self.diffusion.num_timesteps - 1, -1, -1):
                     t = torch.full((b,), i, device=device, dtype=torch.long)
                     model_out = self.diffusion._denoise_fn(
@@ -101,19 +98,23 @@ class InPainter:
                     model_out_cat = model_out[:, self.diffusion.num_numerical_features:]
                     x_num_t = self.diffusion.gaussian_p_sample(model_out_num, x_num_t, t, clip_denoised=False)['sample']
                     
+                    if has_cat:
+                        log_x_cat_t = self.diffusion.p_sample(model_out_cat, log_x_cat_t, t, {})
+                    
                     noisy_features_t = self.diffusion.gaussian_q_sample(original_features, t, noise=fixed_noise)
-                    x_num_t[:, 1:self.diffusion.num_numerical_features] = noisy_features_t
+                    if has_cat:
+                        x_num_t[:, :self.diffusion.num_numerical_features] = noisy_features_t
+                    else:
+                        x_num_t[:, 1:self.diffusion.num_numerical_features] = noisy_features_t
                     
                 
             elif self.strategy == 'original_features':
                 # revert the original features
-                x_num_t[:, 1:self.diffusion.num_numerical_features] = original_features
-                
-                log_x_cat_t = torch.zeros((b, 0), device=device).float()
                 if has_cat:
-                    log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
-                    log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
-
+                    x_num_t[:, :self.diffusion.num_numerical_features] = original_features
+                else:
+                    x_num_t[:, 1:self.diffusion.num_numerical_features] = original_features
+                
                 for i in range(self.diffusion.num_timesteps - 1, -1, -1):
                     t = torch.full((b,), i, device=device, dtype=torch.long)
                     model_out = self.diffusion._denoise_fn(
@@ -125,11 +126,21 @@ class InPainter:
                     model_out_cat = model_out[:, self.diffusion.num_numerical_features:]
                     x_num_t = self.diffusion.gaussian_p_sample(model_out_num, x_num_t, t, clip_denoised=False)['sample']
                     
-                    x_num_t[:, 1:self.diffusion.num_numerical_features] = original_features
+                    if has_cat:
+                        log_x_cat_t = self.diffusion.p_sample(model_out_cat, log_x_cat_t, t, {})
                     
+                    if has_cat:
+                        x_num_t[:, :self.diffusion.num_numerical_features] = original_features
+                    else:
+                        x_num_t[:, 1:self.diffusion.num_numerical_features] = original_features
+                        
+            x_cat_t = log_x_cat_t
+            if has_cat:
+                x_ohe = torch.exp(log_x_cat_t).round()
+                x_cat_t = ohe_to_categories(x_ohe, self.diffusion.num_classes)
             
             X_idx.append(batch_idx)
-            X_predicted.append(x_num_t)
+            X_predicted.append(torch.cat([x_num_t, x_cat_t.float()], dim=1))
             X_num_noisy.append(x_num_noisy)
             
             
@@ -140,28 +151,32 @@ class InPainter:
         return X_idx, X_predicted, X_num_noisy
         
     
-    def inverse_transform_and_save_inpainted(self, X_idx, X_predicted, y_true, y_index=0):
-        # if self.diffusion.num_numerical_features < X_predicted.shape[1]:
-        #     np.save(os.path.join(self.parent_dir, 'X_cat_unnorm'), X_predicted[:, self.diffusion.num_numerical_features:])
-        #     if T_dict['cat_encoding'] == 'one-hot':
-        #         X_predicted[:, self.diffusion.num_numerical_features:] = to_good_ohe(D.cat_transform.steps[0][1], X_predicted[:, self.diffusion.num_numerical_features:])
-        #     X_cat = self.dataset.cat_transform.inverse_transform(X_predicted[:, self.diffusion.num_numerical_features:])
-        #     np.save(os.path.join(self.parent_dir, 'X_cat_inpainted'), X_cat[:, self.diffusion.num_numerical_features:])
+    def inverse_transform_predicted(self, X_predicted):
+        X_cat = X_predicted[:, self.diffusion.num_numerical_features:]
+        
+        if self.diffusion.num_numerical_features < X_predicted.shape[1]:
+            # if T_dict['cat_encoding'] == 'one-hot':
+            #     X_predicted[:, self.diffusion.num_numerical_features:] = to_good_ohe(D.cat_transform.steps[0][1], X_predicted[:, self.diffusion.num_numerical_features:])
+            
+            # This function maps the one-hot encoded values to the original values
+            # in our case, 0 becomes '0', 1 becomes '1', etc.
+            # X_cat = self.dataset.cat_transform.inverse_transform(X_predicted[:, self.diffusion.num_numerical_features:])
+            pass
 
         if self.dataset.num_transform is not None:
             X_num = self.dataset.num_transform.inverse_transform(X_predicted[:, :self.diffusion.num_numerical_features])
         else:
             X_num = X_predicted[:, :self.diffusion.num_numerical_features]
             
-        y_pred = X_num[:, y_index]
+        X_inversed = np.concatenate([X_num, X_cat], axis=1)
             
-        # np.save(os.path.join(self.parent_dir, 'X_num_unnorm'), X_predicted[:, :self.diffusion.num_numerical_features])
-        np.save(os.path.join(self.parent_dir, 'X_num_inpainted'), X_num[:, :self.diffusion.num_numerical_features])
+        return X_inversed
+    
+    def write_outputs(self, X_idx, X_predicted, y_pred):
+        np.save(os.path.join(self.parent_dir, 'X_num_inpainted'), X_predicted[:, :self.diffusion.num_numerical_features])
+        np.save(os.path.join(self.parent_dir, 'X_cat_inpainted'), X_predicted[:, self.diffusion.num_numerical_features:])
         np.save(os.path.join(self.parent_dir, 'X_idx'), X_idx)
         np.save(os.path.join(self.parent_dir, 'y_pred'), y_pred)
-        np.save(os.path.join(self.parent_dir, 'y_true'), y_true)
-        
-        return X_idx, X_num, y_true, y_pred
 
        
     def evaluate_results(self, X_idx, y_pred, y_true):
@@ -174,13 +189,45 @@ class InPainter:
         
         avgndcg, avgp = calculate_metrics(results)
         
-        # calculate the mse between true and predicted labels
-        mse = np.mean((y_true - y_pred) ** 2)
-        y_true_min, y_true_max = np.min(y_true), np.max(y_true)
-        y_pred_min, y_pred_max = np.min(y_pred), np.max(y_pred)
-        print(f'MSE: {mse}')
-        print(f'y_true_max: {y_true_max:.2f}, y_true_min: {y_true_min:.2f}')
-        print(f'y_pred_max: {y_pred_max:.2f}, y_pred_min: {y_pred_min:.2f}')
+        has_cat = self.diffusion.num_classes[0] != 0
+        if has_cat:
+            unique, counts = np.unique(y_pred, return_counts=True)
+            print("Predicted labels and their counts:")
+            for value, count in zip(unique, counts):
+                print(f"Value: {value}, Count: {count}")
+            print()
+            
+            # Accuracy
+            accuracy = accuracy_score(y_true, y_pred)
+            print(f"Accuracy: {accuracy:.4f}")
+
+            # Precision (Macro and Micro Average)
+            precision_macro = precision_score(y_true, y_pred, average='macro')
+            precision_micro = precision_score(y_true, y_pred, average='micro')
+            print(f"Precision (Macro): {precision_macro:.4f} - Precision (Micro): {precision_micro:.4f}")
+
+            # Recall (Macro and Micro Average)
+            recall_macro = recall_score(y_true, y_pred, average='macro')
+            recall_micro = recall_score(y_true, y_pred, average='micro')
+            print(f"Recall (Macro): {recall_macro:.4f} - Recall (Micro): {recall_micro:.4f}")
+
+            # F1 Score (Macro and Micro Average)
+            f1_macro = f1_score(y_true, y_pred, average='macro')
+            f1_micro = f1_score(y_true, y_pred, average='micro')
+            print(f"F1 Score (Macro): {f1_macro:.4f} - F1 Score (Micro): {f1_micro:.4f}")
+
+            # Confusion Matrix
+            print("\nConfusion Matrix:")
+            print(confusion_matrix(y_true, y_pred))
+            print()
+        else:
+            # calculate the mse between true and predicted labels
+            mse = np.mean((y_true - y_pred) ** 2)
+            y_true_min, y_true_max = np.min(y_true), np.max(y_true)
+            y_pred_min, y_pred_max = np.min(y_pred), np.max(y_pred)
+            print(f'MSE: {mse}')
+            print(f'y_true_max: {y_true_max:.2f}, y_true_min: {y_true_min:.2f}')
+            print(f'y_pred_max: {y_pred_max:.2f}, y_pred_min: {y_pred_min:.2f}')
         
         with open(os.path.join(self.parent_dir, f'results.{self.strategy}.txt'), 'w') as f:
             f.write('qid\ttrue\tpred\n')
@@ -229,28 +276,39 @@ def inpaint(
     num_numerical_features_ = D.X_num['test'].shape[1] if D.X_num is not None else 0
     d_in = np.sum(K) + num_numerical_features_
     model_params['d_in'] = d_in
+    
     model = MLPDiffusion(**model_params)
     model.load_state_dict(torch.load(model_path, map_location="cpu"))
 
-    X = D.X_num["test"]
+    has_cat = model.num_classes != 0
+    
+    if has_cat:
+        y_index = -1
+    
+    split = 'test'
+    X = D.X_num[split]
     
     # Get the original labels to evaluate inpainting; As the features are normalized, we need to inverse transform them
     if D.num_transform is not None:
-        X_unnorm = D.num_transform.inverse_transform(X)
+        X_num_unnorm = D.num_transform.inverse_transform(X[:, :num_numerical_features_])
     else:
-        X_unnorm = X
-    true_labels = X_unnorm[:, y_index]
-    true_labels = np.round(true_labels, decimals=6)
-
+        X_num_unnorm = X
+        
+    if D.X_cat is not None:
+        X = torch.from_numpy(np.concatenate([D.X_num[split], D.X_cat[split]], axis=1)).float()
+    else:
+        X = torch.from_numpy(D.X_num[split]).float()
+    y = torch.from_numpy(D.y[split])
+        
     # replace real labels with random labels
     current_labels = X[:, y_index]
-    labels_unique = np.unique(current_labels)
-    random_labels = np.random.choice(labels_unique, size=X.shape[0], replace=True)
+    labels_unique = torch.unique(current_labels)
+    random_labels = labels_unique[torch.randint(0, len(labels_unique), (X.shape[0],))]
     X[:, y_index] = random_labels
     
-    X = torch.from_numpy(X).float()
-    X_idx = torch.from_numpy(np.load(os.path.join(real_data_path, "idx_test.npy"), allow_pickle=True))
-    test_loader = DataLoader(X, batch_size=batch_size, shuffle=False)
+    test_loader = lib.FastTensorDataLoader(X, y, batch_size=batch_size)
+    
+    X_idx = torch.from_numpy(np.load(os.path.join(real_data_path, f"idx_{split}.npy"), allow_pickle=True))
     test_loader_idx = DataLoader(X_idx, batch_size=batch_size, shuffle=False)
 
     diffusion = GaussianMultinomialDiffusion(
@@ -268,11 +326,28 @@ def inpaint(
     
     inpainter = InPainter(diffusion, strategy, D, parent_dir, test_loader, test_loader_idx, device)
     X_idx, X_predicted, X_predicted_noisy = inpainter.run_loop()
-    X_idx, X_num, y_true, y_pred = inpainter.inverse_transform_and_save_inpainted(X_idx, X_predicted, true_labels, y_index=y_index)
+    
+    X_predicted_inversed = inpainter.inverse_transform_predicted(X_predicted)
+    
+    if has_cat:
+        y_true = D.y['test']
+    else:
+        y_true = X_num_unnorm[:, y_index]
+        
+    y_pred = X_predicted_inversed[:, y_index]
+    X_num_pred_inv = X_predicted_inversed[:, :num_numerical_features_]
+    for i in range(num_numerical_features_):
+        mse = np.mean((X_num_unnorm[:, i] - X_num_pred_inv[:, i]) ** 2)
+        print(f'MSE for index {i}: {mse:.6f}')
+        
     avgndcg, avgp = inpainter.evaluate_results(X_idx, y_pred, y_true)
     print(f'strategy: {strategy}, avgndcg: {avgndcg}, avgp: {avgp}')
+    avgndcg, avgp = inpainter.evaluate_results(X_idx, random_labels.numpy(), y_true)
+    print(f'strategy: random_labels, avgndcg: {avgndcg}, avgp: {avgp}')
     
-    plot_inpainting_outputs(parent_dir, y_index, D, X_unnorm, X_num, X_predicted_noisy, y_pred, strategy)  
+    plot_inpainting_outputs(parent_dir, y_index, D, X_num_unnorm, X_num_pred_inv, X_predicted_noisy, y_pred, strategy)
+    inpainter.write_outputs(X_idx, X_predicted, y_pred)
+    
     
     
 if __name__ == '__main__':
