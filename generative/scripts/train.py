@@ -42,6 +42,7 @@ class Trainer:
         x = x.to(self.device)
         for k in out_dict:
             out_dict[k] = out_dict[k].long().to(self.device)
+            # out_dict[k][out_dict[k] == 3] = 2
         self.optimizer.zero_grad()
         if self.approach == 'pointwise':
             loss_multi, loss_gauss = self.diffusion.mixed_loss(x, out_dict)
@@ -204,10 +205,13 @@ if __name__ == '__main__':
     
     if args.k is not None:
         experiment_id = f"k{args.k}"
-        raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, experiment_id)
+        raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, 'by_fraction', experiment_id)
     else:
         experiment_id = time.strftime('%Y-%m-%d_%H-%M-%S')
-        raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, "k1.0")
+        if 'classification' in args.config:
+            raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, 'npy_cat', 'Fold1')
+        else:
+            raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, 'npy', 'Fold1')
         
     if args.approach == 'pairwise':
         experiment_id += "_pairwise"
