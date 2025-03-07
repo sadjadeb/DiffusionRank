@@ -8,14 +8,15 @@ from utils import set_all_seeds, calculate_metrics
 
 set_all_seeds(42)
 
-device = 'cuda:3'
-num_features = 137
-training_steps = 500000
+device = 'cuda:0'
+num_features = 47
+training_steps = 50000
 objective = 'pred_noise'
 mode = 'inpaint' # 'train' or 'inpaint'
-inpainting_strategy = 't-noised-replace' # 't-noised-replace' or 'original-replace' or 't-noised-replace'
+inpainting_strategy = 't-noised-replace' # 't-noised-replace' or 'original-replace' or 'no-replace'
 inpainting_index = 0
-dataset_name = 'MSLR-WEB30K' # 'MQ2007' or 'MQ2008' or 'MSLR-WEB10K' or 'MSLR-WEB30K'
+dataset_name = 'MQ2007' # 'MQ2007' or 'MQ2008' or 'MSLR-WEB10K' or 'MSLR-WEB30K'
+model_arch = 'UNet' # 'UNet' or 'MLP'
 base_dir = os.path.join("..", "data", dataset_name, "npy", "Fold1")
 
 
@@ -66,33 +67,36 @@ train_seq = torch.cat([train_seq, torch.zeros(train_seq.shape[0], 32, 1)], dim=-
 test_seq = torch.cat([test_seq, torch.zeros(test_seq.shape[0], 32, 1)], dim=-1)
 val_seq = torch.cat([val_seq, torch.zeros(val_seq.shape[0], 32, 1)], dim=-1)
 
-# model = Unet1D(
-#     dim = 64,
-#     dim_mults = (1, 2, 4, 8),
-#     channels = 32
-# )
+if model_arch == 'UNet':
+    model = Unet1D(
+        dim = 64,
+        dim_mults = (1, 2, 4, 8),
+        channels = 32
+    )
 
-# diffusion = GaussianDiffusion1D(
-#     model,
-#     seq_length = num_features + 1, # temporarily added 1 to the feature length
-#     objective = objective,
-#     auto_normalize = False
-# ).to(device)
+    diffusion = GaussianDiffusion1D(
+        model,
+        seq_length = num_features + 1, # temporarily added 1 to the feature length
+        objective = objective,
+        auto_normalize = False
+    ).to(device)
+    
+elif model_arch == 'MLP':
+    model = MLP1D(
+        input_dim=num_features + 1,
+    )
 
-
-model = MLP1D(
-    input_dim=num_features + 1,
-)
-
-diffusion = GaussianDiffusionMLP1D(
-    model,
-    seq_length=num_features + 1,
-    objective=objective,
-    auto_normalize=False
-).to(device)
+    diffusion = GaussianDiffusionMLP1D(
+        model,
+        seq_length=num_features + 1,
+        objective=objective,
+        auto_normalize=False
+    ).to(device)
+else:
+    raise ValueError('Invalid model architecture')
 
 if mode == 'train':
-    wandb.init(project=f'ddpm_pt_{dataset_name}', name=f'exp_{training_steps}_{objective}_MLP')
+    wandb.init(project=f'ddpm_pt_{dataset_name}', name=f'exp_{training_steps}_{objective}_{model_arch}')
     
     wandb.config.update({
         'training_steps': training_steps,
@@ -112,25 +116,26 @@ if mode == 'train':
         train_num_steps = training_steps, # total training steps
         gradient_accumulate_every = 2,    # gradient accumulation steps
         ema_decay = 0.995,                # exponential moving average decay
-        eval_every = 10,    # save model and sample every n steps
+        eval_every = 50,    # save model and sample every n steps
     )
     
     best_model, final_model = trainer.train()
     
-    torch.save(best_model.model.state_dict(), f'pt_experiments/ddpm_{dataset_name}_{training_steps}_{objective}_MLP_best.pt')
-    torch.save(final_model.model.state_dict(), f'pt_experiments/ddpm_{dataset_name}_{training_steps}_{objective}_MLP_final.pt')
+    torch.save(best_model.model.state_dict(), f'pt_experiments/ddpm_{dataset_name}_{training_steps}_{objective}_{model_arch}_best.pt')
+    torch.save(final_model.model.state_dict(), f'pt_experiments/ddpm_{dataset_name}_{training_steps}_{objective}_{model_arch}_final.pt')
     
     wandb.finish()
 
 elif mode == 'inpaint':
     # load the trained model
-    diffusion.model.load_state_dict(torch.load(f'pt_experiments/ddpm_{dataset_name}_{training_steps}_{objective}_MLP_best.pt'))
+    diffusion.model.load_state_dict(torch.load(f'pt_experiments/ddpm_{dataset_name}_{training_steps}_{objective}_{model_arch}_best.pt'))
     
     # replace the inpainting index with random values
     masked_test_seq = test_seq.clone()
-    # original_labels = masked_test_seq[:, :, inpainting_index].unique()
-    # random_labels = np.random.choice(original_labels, size=(masked_test_seq.shape[0], masked_test_seq.shape[1],))
-    random_labels = np.zeros((masked_test_seq.shape[0], masked_test_seq.shape[1],))
+    original_labels = masked_test_seq[:, :, inpainting_index].unique()
+    random_labels = np.random.choice(original_labels, size=(masked_test_seq.shape[0], masked_test_seq.shape[1],))
+    # random_labels = np.zeros((masked_test_seq.shape[0], masked_test_seq.shape[1],))
+    
     masked_test_seq[:, :, inpainting_index] = torch.tensor(random_labels, dtype=torch.float32)
     masked_test_seq = masked_test_seq.to(device)
     
@@ -153,6 +158,12 @@ elif mode == 'inpaint':
     y_pred = denoised_test_seq[:, inpainting_index]
     
     test_idx = test_idx[:len(denoised_test_seq)]
+    
+    # calculate the MSE over each feature
+    mse = np.mean((test_seq - denoised_test_seq) ** 2, axis=0)
+    print(f'MSE over all features: {np.mean(mse):.6f}')
+    for i, mse_val in enumerate(mse):
+        print(f'MSE over feature {i}: {mse_val:.6f}')
     
     # calculate the MSE over the inpainted value
     mse = np.mean((y_true - y_pred) ** 2)
