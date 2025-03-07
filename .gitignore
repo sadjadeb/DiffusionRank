@@ -11,6 +11,9 @@
 /__pycache__
 **/__pycache__
 **/**/__pycache__
+**slurm-*
 
 # Specific files and directories
 environment.yml
+/automated_run_scripts
+**/pt_experiments
