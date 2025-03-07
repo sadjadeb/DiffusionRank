@@ -590,7 +590,7 @@ class GaussianDiffusion1D(Module):
 
         return ModelPrediction(pred_noise, x_start)
 
-    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = True):
+    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = False):
         preds = self.model_predictions(x, t, x_self_cond)
         x_start = preds.pred_x_start
 
@@ -601,7 +601,7 @@ class GaussianDiffusion1D(Module):
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
     @torch.no_grad()
-    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = True):
+    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = False):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((b,), t, device = x.device, dtype = torch.long)
         model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, x_self_cond = x_self_cond, clip_denoised = clip_denoised)
@@ -640,18 +640,13 @@ class GaussianDiffusion1D(Module):
                 if strategy == 't-noised-replace':
                     t_batched = torch.full((original_seq.shape[0],), t, device=device)
                     t_noised = self.q_sample(original_seq, t_batched, noise)
-                    denoised_seq[:, :, inpainting_index] = t_noised[:, :, inpainting_index]
+                    denoised_seq[:, :, inpainting_index+1:] = t_noised[:, :, inpainting_index+1:]
                 elif strategy == 'original-replace':
-                    denoised_seq[:, :, inpainting_index] = original_seq[:, :, inpainting_index]
+                    denoised_seq[:, :, inpainting_index+1:] = original_seq[:, :, inpainting_index+1:]
             
             
             self_cond = x_start if self.self_condition else None
-            denoised_seq, x_start = self.p_sample(denoised_seq, t, self_cond)
-            
-            # replace the first half of the sequence with the original sequence
-            # if t != 0:
-            #     denoised_seq[:, :, :300] = original_seq[:, :, :300]
-            
+            denoised_seq, x_start = self.p_sample(denoised_seq, t, self_cond)            
         
         denoised_seq = self.unnormalize(denoised_seq)
         
@@ -674,7 +669,7 @@ class GaussianDiffusion1D(Module):
         return img
 
     @torch.no_grad()
-    def ddim_sample(self, shape, clip_denoised = True):
+    def ddim_sample(self, shape, clip_denoised = False):
         batch, device, total_timesteps, sampling_timesteps, eta, objective = shape[0], self.betas.device, self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective
 
         times = torch.linspace(-1, total_timesteps - 1, steps=sampling_timesteps + 1)   # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
@@ -912,8 +907,8 @@ class GaussianDiffusionMLP1D(Module):
         return ModelPrediction(pred_noise, x_start)
  
 
-    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = True):
-        preds = self.model_predictions(x, t, x_self_cond)
+    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = False):
+        preds = self.model_predictions(x, t, x_self_cond, clip_x_start=clip_denoised)
         x_start = preds.pred_x_start
         
         if clip_denoised:
@@ -923,7 +918,7 @@ class GaussianDiffusionMLP1D(Module):
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
     @torch.no_grad()
-    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = True):
+    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = False):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((b,), t, device = x.device, dtype = torch.long)
         model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, x_self_cond = x_self_cond, clip_denoised = clip_denoised)
@@ -967,6 +962,7 @@ class GaussianDiffusionMLP1D(Module):
         loss = loss * extract(self.loss_weight, t, loss.shape)
         return loss.mean()
     
+    
     @torch.no_grad()
     def denoise(self, noisy_seq):
         device = self.betas.device
@@ -982,6 +978,7 @@ class GaussianDiffusionMLP1D(Module):
         denoised_seq = self.unnormalize(denoised_seq)
             
         return denoised_seq
+    
     
     @torch.no_grad()
     def inpaint(self, noisy_seq, original_seq, noise, strategy, inpainting_index = 0):
@@ -1002,12 +999,7 @@ class GaussianDiffusionMLP1D(Module):
             
             
             self_cond = x_start if self.self_condition else None
-            denoised_seq, x_start = self.p_sample(denoised_seq, t, self_cond, clip_denoised = False)
-            
-            # replace the first half of the sequence with the original sequence
-            # if t != 0:
-            #     denoised_seq[:, :, :300] = original_seq[:, :, :300]
-            
+            denoised_seq, x_start = self.p_sample(denoised_seq, t, self_cond, clip_denoised = False)         
         
         denoised_seq = self.unnormalize(denoised_seq)
         
