@@ -98,7 +98,7 @@ def test(net, epoch, train_loss):
         
         print(f'epoch:{epoch}, loss: {train_loss}, val_loss: {val_loss}, avgp: {avgp}, avgndcg: {avgndcg}')
         
-        return avgp, avgndcg, val_loss
+        return avgp, avgndcg, val_loss, results
 
 
 if __name__ == '__main__':
@@ -108,11 +108,12 @@ if __name__ == '__main__':
     
     best_val_loss = float('inf')
     best_model_state = None
+    best_results = None
 
     test(net, 0, 'n/a')
     for epoch in range(num_epochs):
         train_loss = train(net)    
-        avgp, avgndcg, val_loss = test(net, epoch + 1, str(train_loss))
+        avgp, avgndcg, val_loss, results = test(net, epoch + 1, str(train_loss))
         
         wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss})
         
@@ -120,6 +121,7 @@ if __name__ == '__main__':
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_model_state = net.state_dict().copy()
+            best_results = results
             
     final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.k{k}.final.pt')
     best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.k{k}.best.pt')
@@ -134,5 +136,14 @@ if __name__ == '__main__':
         net.load_state_dict(best_model_state)
         torch.save(net.state_dict(), best_model_save_path)
         print('Best model saved to {}'.format(best_model_save_path))
+        
+    # Save results
+    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.k{k}.best.results.txt')
+    with open(results_save_path, 'w') as f:
+        f.write('qid true_label pred_label\n')
+        for qid, values in best_results.items():
+            for true_label, pred_label in values:
+                f.write(f'{qid} {true_label} {pred_label}\n')
+    print('Results saved to {}'.format(results_save_path))
 
     wandb.finish()
