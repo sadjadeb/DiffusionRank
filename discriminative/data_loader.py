@@ -123,8 +123,13 @@ class DataLoaderTest():
         for i in range(self.batch_size):
             line = self.reader.readline()
             if line == '':
-                raise StopIteration
-                break
+                if cnt == 0:
+                    raise StopIteration
+                else:
+                    self.features = self.features[:cnt]
+                    self.labels = self.labels[:cnt]
+                    break
+                
             
             qid, label, feat = parse_line(line, self.features_count, self.normalization_scale)
             qids.append(qid)
