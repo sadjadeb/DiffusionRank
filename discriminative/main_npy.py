@@ -1,5 +1,4 @@
 import os
-import math
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,25 +12,20 @@ seed = 42
 set_all_seeds(seed)
 
 approach = 'pointwise' # ['pointwise', 'pairwise']
-dataset = 'MQ2007' # ['MQ2007', 'MQ2008', 'MSLR-Web10K', 'MSLR-Web30K']
+dataset = 'MQ2007' # ['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K']
+k = 1.0
 
 # Set hyperparameters
-device = torch.device("cuda:3")
+device = torch.device("cuda:0")
 features_count = 136 if 'MSLR' in dataset else 46
 num_steps_per_epoch = 2048
 num_epochs = 100
-dropout_rate = 0.1
-learning_rate = 1e-5
+dropout_rate = 0.2 if 'MSLR' in dataset else 0.1
+learning_rate = 5e-4 if 'MSLR' in dataset else 1e-5
+num_hidden_nodes = 256 if 'MSLR' in dataset else 128
 batch_size = 1024
 
-# Set data paths
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-data_dir = os.path.join(project_root, 'data', dataset, 'raw', 'Fold1')
-train_data_file = os.path.join(data_dir, 'train.txt')
-test_data_file = os.path.join(data_dir, 'test.txt')
-model_output_file_path = f"ltr.{dataset}.{num_epochs}.pth"
-
-wandb.init(project=f"ltr_npy_{dataset}", name=f"real1x+synthetic1x")
+wandb.init(project=f"ltr_npy_{dataset}", name=f"exp_k{k}_{approach}")
 wandb.config.update({
     'features_count': features_count,
     'num_epochs': num_epochs,
@@ -40,34 +34,26 @@ wandb.config.update({
 })
 
 
-net = DNN(input_dim=features_count, approach=approach, dropout_rate=dropout_rate).to(device)
+net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach=approach, dropout_rate=dropout_rate).to(device)
 optimizer = optim.Adam(net.parameters(), lr=learning_rate)
 if approach == 'pairwise':
     criterion = nn.CrossEntropyLoss()
 elif approach == 'pointwise':
     criterion = nn.MSELoss()
 
-test_reader = DataLoaderTest(test_data_file, batch_size=batch_size, features_count=features_count, device=device)
-test_reader_iter = iter(test_reader)
 
-# Start with the pointwise approach because we need the number of data points to find the EPOCH_STEPS, then overwrite the READER_TRAIN_ITER with the pairwise approach
-X_train_real = np.load(os.path.join(project_root, 'data', dataset, 'npy', 'Fold1', 'X_num_train.npy'))
-y_train_real = np.load(os.path.join(project_root, 'data', dataset, 'npy', 'Fold1', 'y_train.npy'))
-X_train_synthetic = np.load(os.path.join(project_root, 'generative', 'experiments', dataset, 'exp_2024-11-04_18-38-43', 'X_num_train.npy'))
-y_train_synthetic = np.load(os.path.join(project_root, 'generative', 'experiments', dataset, 'exp_2024-11-04_18-38-43', 'y_train.npy'))
+# Set data paths
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-synthetic_data_ratio = 1
-new_length = int(X_train_real.shape[0] * synthetic_data_ratio)
-random_indices = np.random.choice(X_train_synthetic.shape[0], size=new_length, replace=False)
-X_train_synthetic = X_train_synthetic[random_indices]
-y_train_synthetic = y_train_synthetic[random_indices]
-
-X_train = np.concatenate((X_train_real, X_train_synthetic), axis=0)
-y_train = np.concatenate((y_train_real, y_train_synthetic), axis=0)
-
+X_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_train.npy'))
+y_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_train.npy'))
 # Create a dataloader for the training data using pytorch
 train_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float().to(device), torch.from_numpy(y_train).float().to(device))
 train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
+
+test_data_file = os.path.join(project_root, 'data', dataset, 'raw', 'Fold1', 'test.txt')
+test_reader = DataLoaderTest(test_data_file, batch_size=batch_size, features_count=features_count, device=device)
+test_reader_iter = iter(test_reader)
     
 
 def train(net):
@@ -119,6 +105,9 @@ if __name__ == '__main__':
     print('Approach: {}'.format(approach))
     print('Dataset: {}'.format(dataset))
     print('Number of learnable parameters: {}'.format(net.parameter_count()))
+    
+    best_val_loss = float('inf')
+    best_model_state = None
 
     test(net, 0, 'n/a')
     for epoch in range(num_epochs):
@@ -126,8 +115,24 @@ if __name__ == '__main__':
         avgp, avgndcg, val_loss = test(net, epoch + 1, str(train_loss))
         
         wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss})
+        
+        # Save best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_model_state = net.state_dict().copy()
+            
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.k{k}.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.k{k}.best.pt')
+    
+        
+    # Save model
+    torch.save(net.state_dict(), final_model_save_path)
+    print('Final model saved to {}'.format(final_model_save_path))
 
-    # save model
-    torch.save(net.state_dict(), model_output_file_path)
-    print('Model saved to {}'.format(model_output_file_path))
+    # Load best model before saving
+    if best_model_state is not None:
+        net.load_state_dict(best_model_state)
+        torch.save(net.state_dict(), best_model_save_path)
+        print('Best model saved to {}'.format(best_model_save_path))
+
     wandb.finish()
