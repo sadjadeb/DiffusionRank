@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.optim as optim
 import wandb
 from utils import set_all_seeds, calculate_metrics
-from data_loader import DataLoaderTest
 from model import DNN
 
 seed = 42
@@ -33,15 +32,6 @@ wandb.config.update({
     'learning_rate': learning_rate,
 })
 
-
-net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach=approach, dropout_rate=dropout_rate).to(device)
-optimizer = optim.Adam(net.parameters(), lr=learning_rate)
-if approach == 'pairwise':
-    criterion = nn.CrossEntropyLoss()
-elif approach == 'pointwise':
-    criterion = nn.MSELoss()
-
-
 # Set data paths
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -51,9 +41,20 @@ y_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k
 train_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float().to(device), torch.from_numpy(y_train).float().to(device))
 train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
 
-test_data_file = os.path.join(project_root, 'data', dataset, 'raw', 'Fold1', 'test.txt')
-test_reader = DataLoaderTest(test_data_file, batch_size=batch_size, features_count=features_count, device=device)
-test_reader_iter = iter(test_reader)
+X_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_test.npy'))
+y_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_test.npy'))
+idx_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_test.npy'))
+# Create a dataloader for the test data using pytorch
+test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).float(), torch.from_numpy(idx_test).long())
+test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
+
+# Create model, optimizer, and loss function
+net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach=approach, dropout_rate=dropout_rate).to(device)
+optimizer = optim.Adam(net.parameters(), lr=learning_rate)
+if approach == 'pairwise':
+    criterion = nn.CrossEntropyLoss()
+elif approach == 'pointwise':
+    criterion = nn.MSELoss()
     
 
 def train(net):
@@ -81,17 +82,18 @@ def test(net, epoch, train_loss):
         results = {}
         val_loss = 0.0
         val_size = 0
-        for features, qids, labels, cnt in test_reader_iter:
+        for features, labels, qids in test_reader_iter:
             out = net(features).data.cpu()
-            labels_tensor = torch.tensor(labels, dtype=torch.float32).view(-1, 1)
+            labels_tensor = labels.view(-1, 1)
             loss = criterion(out, labels_tensor)
             val_loss += loss.item()
             val_size += 1
             row_cnt = len(qids)
             for i in range(row_cnt):
-                if qids[i] not in results:
-                    results[qids[i]] = []
-                results[qids[i]].append((labels[i], out[i][0]))
+                qid = qids[i].item()
+                if qid not in results:
+                    results[qid] = []
+                results[qid].append((labels[i], out[i][0]))
         val_loss /= val_size
 
         avgndcg, avgp = calculate_metrics(results)
