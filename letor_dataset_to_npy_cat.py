@@ -3,7 +3,7 @@ import os
 import json
 
 
-def load_letor_data(file_path):
+def load_letor_data(file_path, mode):
     # Load LETOR dataset
     # Assuming each line is formatted as: label qid:XX feature1 feature2 ... featureN #docid=XXX
     # Parse the data accordingly
@@ -15,6 +15,11 @@ def load_letor_data(file_path):
         for line in f:
             parts = line.strip().split()
             label = int(parts[0])
+            
+            if mode == 'binclass':
+                if label > 1:
+                    label = 1
+            
             features = []
             
             for i in range(1, len(parts)):
@@ -35,27 +40,6 @@ def load_letor_data(file_path):
     
     return np.array(data), np.array(labels), np.array(idx)
 
-def parse_line(line):
-    tokens = line.strip().split(' ')
-    qid = -1
-    feat = []
-    label = int(tokens[0])
-    
-    for i in range(46):
-        feat.append(0)
-    
-    for i in range(1, len(tokens)):
-        sub_tokens = tokens[i].split(':')
-        if sub_tokens[0] == 'qid':
-            qid = int(sub_tokens[1])
-        else:
-            try:
-                feat_idx = int(sub_tokens[0])
-                feat_val = float(sub_tokens[1])
-                feat[feat_idx - 1] = feat_val
-            except:
-                pass
-    return qid, label, feat
 
 
 def find_and_cast_to_cat(dataset, X_all_num, y):
@@ -89,6 +73,7 @@ def find_and_cast_to_cat(dataset, X_all_num, y):
 
 
 if __name__ == '__main__':
+    mode = 'binclass'  # ['binclass', 'multiclass']
     dataset = 'MSLR-WEB30K'
     
     data_folder = os.path.join('data', dataset, 'raw', 'Fold1')
@@ -102,9 +87,9 @@ if __name__ == '__main__':
     test_file_path = os.path.join(data_folder, 'test.txt')
 
     # Load data
-    X_train, y_train, idx_train = load_letor_data(train_file_path)
-    X_val, y_val, idx_val = load_letor_data(val_file_path)
-    X_test, y_test, idx_test = load_letor_data(test_file_path)
+    X_train, y_train, idx_train = load_letor_data(train_file_path, mode)
+    X_val, y_val, idx_val = load_letor_data(val_file_path, mode)
+    X_test, y_test, idx_test = load_letor_data(test_file_path, mode)
 
     
     # Cast to categorical
@@ -137,7 +122,7 @@ if __name__ == '__main__':
     
     info['name'] = dataset
     info['id'] = f'{dataset.lower()}--cat'
-    info['task_type'] = 'multiclass'
+    info['task_type'] = 'binclass' if len(np.unique(y_train)) == 2 else 'multiclass'
     info['n_classes'] = len(np.unique(y_train))
     info['n_num_features'] = X_num_train.shape[1]
     info['n_cat_features'] = X_cat_train.shape[1]

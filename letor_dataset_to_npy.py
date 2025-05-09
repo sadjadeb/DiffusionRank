@@ -1,8 +1,9 @@
 import numpy as np
 import os
+import json
 
 
-def load_letor_data(file_path):
+def load_letor_data(file_path, mode):
     # Load LETOR dataset
     # Assuming each line is formatted as: label qid:XX feature1 feature2 ... featureN #docid=XXX
     # Parse the data accordingly
@@ -14,6 +15,11 @@ def load_letor_data(file_path):
         for line in f:
             parts = line.strip().split()
             label = int(parts[0])
+            
+            if mode == 'binclass':
+                if label > 1:
+                    label = 1
+            
             features = []
             
             for i in range(1, len(parts)):
@@ -34,38 +40,20 @@ def load_letor_data(file_path):
     
     return np.array(data), np.array(labels), np.array(idx)
 
-def parse_line(line):
-    tokens = line.strip().split(' ')
-    qid = -1
-    feat = []
-    label = int(tokens[0])
-    
-    for i in range(46):
-        feat.append(0)
-    
-    for i in range(1, len(tokens)):
-        sub_tokens = tokens[i].split(':')
-        if sub_tokens[0] == 'qid':
-            qid = int(sub_tokens[1])
-        else:
-            try:
-                feat_idx = int(sub_tokens[0])
-                feat_val = float(sub_tokens[1])
-                feat[feat_idx - 1] = feat_val
-            except:
-                pass
-    return qid, label, feat
-
 
 if __name__ == '__main__':
-    dataset = 'MSLR-WEB30K'
+    mode = 'binclass'  # ['binclass', 'multiclass']
+    dataset = 'MQ2007'
     
     data_folder = os.path.join('data', dataset, 'raw', 'Fold1')
-    output_folder = os.path.join('data', dataset, 'npy', 'Fold1')
+    output_folder = os.path.join('data', dataset, 'npy_bin', 'Fold1')
     
-    train_file_path = os.path.join(data_folder, 'train.txt')
-    val_file_path = os.path.join(data_folder, 'vali.txt')
-    test_file_path = os.path.join(data_folder, 'test.txt')
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    
+    train_file_path = os.path.join(data_folder, 'train.txt', mode)
+    val_file_path = os.path.join(data_folder, 'vali.txt', mode)
+    test_file_path = os.path.join(data_folder, 'test.txt', mode)
 
     # Load data
     X_train, y_train, idx_train = load_letor_data(train_file_path)
@@ -87,5 +75,20 @@ if __name__ == '__main__':
     np.save(os.path.join(output_folder,'y_train.npy'), y_train)
     np.save(os.path.join(output_folder,'y_val.npy'), y_val)
     np.save(os.path.join(output_folder,'y_test.npy'), y_test)
+    
+    # Create and save the info file
+    info = {}
+    
+    info['name'] = dataset
+    info['id'] = f'{dataset.lower()}--default'
+    info['task_type'] = 'regression'
+    info['n_num_features'] = X_train.shape[1]
+    info['n_cat_features'] = 0
+    info['train_size'] = X_train.shape[0]
+    info['val_size'] = X_val.shape[0]
+    info['test_size'] = X_test.shape[0]
+    
+    with open(os.path.join(output_folder, 'info.json'), 'w') as f:
+        json.dump(info, f, indent=4)
 
     print(f"Data saved to {output_folder}")
