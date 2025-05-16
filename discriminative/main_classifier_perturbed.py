@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 import wandb
 from utils import set_all_seeds, calculate_metrics
-from model import ClassifierDNN
+from model import DNN
 from sklearn.metrics import accuracy_score
 
 seed = 42
@@ -18,7 +18,7 @@ k = 1.0
 device = torch.device("cuda:0")
 features_count = 136 if 'MSLR' in dataset else 46
 num_steps_per_epoch = 2048
-num_epochs = 10000
+num_epochs = 5000
 dropout_rate = 0.2 if 'MSLR' in dataset else 0.1
 learning_rate = 5e-4 if 'MSLR' in dataset else 5e-5
 num_hidden_nodes = 256 if 'MSLR' in dataset else 128
@@ -26,7 +26,7 @@ batch_size = 1024
 
 features_count += 1 # Add 1 for time feature
 
-wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_perturbed")
+wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_perturbed_1dim")
 wandb.config.update({
     'features_count': features_count,
     'num_epochs': num_epochs,
@@ -56,10 +56,9 @@ test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
 # Create model, optimizer, and loss function
-net = ClassifierDNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes,
-                    dropout_rate=dropout_rate, num_classes=2).to(device)
+net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach='classifier', dropout_rate=dropout_rate).to(device)
 optimizer = optim.Adam(net.parameters(), lr=learning_rate)
-criterion = nn.CrossEntropyLoss()
+criterion = nn.BCELoss()
 
 
 def forward_diffusion_step(x0, t, beta_schedule):
@@ -89,13 +88,14 @@ def forward_diffusion_step(x0, t, beta_schedule):
     return xt, noise
 
 
-def train(net):
+def train(net, train_reader_iter):
     net.train()
     train_loss = 0.0
     e_size = 0
     for features, labels in train_reader_iter:
         e_size += 1
-        out = net(features)
+        out = net(features).squeeze()
+        labels = labels.float()
         loss = criterion(out, labels)
         
         optimizer.zero_grad()
@@ -112,35 +112,35 @@ def test(net, epoch, train_loss):
         results = {}
         val_loss = 0.0
         val_acc = 0.0
-        num_of_zeros_pred = 0
         val_size = 0
         for features, labels, qids in test_reader_iter:
             out = net(features).data.cpu()
-            
-            out_class = out.argmax(dim=1)
-            num_of_zeros_pred += (out_class == 0).sum().item()
-            
-            _, preds = torch.max(out, 1)
-            acc = accuracy_score(labels.numpy(), preds.numpy())
-            val_acc += acc
+            out = out.squeeze()
+            labels = labels.float()
             
             loss = criterion(out, labels)
             val_loss += loss.item()
             val_size += 1
+            
+            preds = (out > 0.5).int().cpu()
+            acc = accuracy_score(labels.numpy(), preds.numpy())
+            val_acc += acc
+            
             row_cnt = len(qids)
             for i in range(row_cnt):
                 qid = qids[i].item()
                 if qid not in results:
                     results[qid] = []
-                results[qid].append((labels[i], out[i][1]))
+                results[qid].append((labels[i], out[i].item()))
         val_loss /= val_size
         val_acc /= val_size
 
         avgndcg, avgp = calculate_metrics(results)
         
-        print(f'epoch:{epoch}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc} num_of_zeros_pred: {num_of_zeros_pred}')
+        print(f'epoch:{epoch}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
         
-        return avgp, avgndcg, val_loss, results, val_acc, num_of_zeros_pred
+        return avgp, avgndcg, val_loss, results, val_acc
+
 
 
 if __name__ == '__main__':
@@ -172,11 +172,10 @@ if __name__ == '__main__':
         train_reader = torch.utils.data.TensorDataset(x_noisy, y_train)
         train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
         
+        train_loss = train(net, train_reader_iter)
+        avgp, avgndcg, val_loss, results, val_acc = test(net, epoch + 1, str(train_loss))
         
-        train_loss = train(net)    
-        avgp, avgndcg, val_loss, results, val_acc, num_of_zeros_pred = test(net, epoch + 1, str(train_loss))
-        
-        wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc, 'num_of_zeros_pred': num_of_zeros_pred})
+        wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
         
         # Save best model
         if val_loss < best_val_loss:
@@ -184,8 +183,8 @@ if __name__ == '__main__':
             best_model_state = net.state_dict().copy()
             best_results = results
             
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.perturbed.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.perturbed.best.pt')
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.perturbed.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.perturbed.best.pt')
     
         
     # Save model
@@ -199,7 +198,7 @@ if __name__ == '__main__':
         print('Best model saved to {}'.format(best_model_save_path))
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.perturbed.best.results.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.perturbed.best.results.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in best_results.items():
