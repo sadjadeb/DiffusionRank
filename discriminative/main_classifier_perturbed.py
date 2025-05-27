@@ -42,16 +42,25 @@ y_train = torch.from_numpy(np.load(os.path.join(project_root, 'data', dataset, '
 # Replace all 2 labels with 1
 y_train[y_train == 2] = 1
 
+X_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_val.npy'))
+y_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_val.npy'))
+idx_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_val.npy'))
+# Replace all 2 labels with 1
+y_val[y_val == 2] = 1
+
 X_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_test.npy'))
 y_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_test.npy'))
 idx_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_test.npy'))
 # Replace all 2 labels with 1
 y_test[y_test == 2] = 1
 
-# add zeros to the test set
+# add zeros to the val and test sets for the time feature
+X_val = np.concatenate((X_val, np.zeros((X_val.shape[0], 1))), axis=1)
 X_test = np.concatenate((X_test, np.zeros((X_test.shape[0], 1))), axis=1)
 
-# Create a dataloader for the test data using pytorch
+# Create a dataloader for the validation and test data using pytorch
+val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(idx_val).long())
+val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
 test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).long(), torch.from_numpy(idx_test).long())
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
@@ -106,14 +115,14 @@ def train(net, train_reader_iter):
     return train_loss / e_size
 
 
-def test(net, epoch, train_loss):
+def evaluate(net, data_iter):
     net.eval()
     with torch.no_grad():
         results = {}
         val_loss = 0.0
         val_acc = 0.0
         val_size = 0
-        for features, labels, qids in test_reader_iter:
+        for features, labels, qids in data_iter:
             out = net(features).data.cpu()
             out = out.squeeze()
             labels = labels.float()
@@ -137,10 +146,7 @@ def test(net, epoch, train_loss):
 
         avgndcg, avgp = calculate_metrics(results)
         
-        print(f'epoch:{epoch}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
-        
-        return avgp, avgndcg, val_loss, results, val_acc
-
+        return avgp, avgndcg, val_loss, val_acc, results
 
 
 if __name__ == '__main__':
@@ -148,15 +154,17 @@ if __name__ == '__main__':
     print('Dataset: {}'.format(dataset))
     print('Number of learnable parameters: {}'.format(net.parameter_count()))
     
-    best_val_loss = float('inf')
-    best_model_state = None
-    best_results = None
+    avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
+    print(f'epoch: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
+    wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
+    
     
     # Beta schedule (e.g., linear from 1e-4 to 2e-2 over 50 steps)
     T = 50
     beta_schedule = torch.linspace(1e-4, 2e-2, T).to(device)
 
-    test(net, 0, 'n/a')
+    best_val_loss = float('inf')
+    best_model_state = None
     for epoch in range(num_epochs):
         # Sample timestep t per sample in batch
         t = torch.randint(0, T, (X_train.size(0),))
@@ -171,37 +179,40 @@ if __name__ == '__main__':
         
         train_reader = torch.utils.data.TensorDataset(x_noisy, y_train)
         train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
-        
+    
         train_loss = train(net, train_reader_iter)
-        avgp, avgndcg, val_loss, results, val_acc = test(net, epoch + 1, str(train_loss))
         
+        avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
+        print(f'epoch:{epoch+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
         wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
         
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_model_state = net.state_dict().copy()
-            best_results = results
-            
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.perturbed.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.perturbed.best.pt')
-    
+
+
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.best.pt')
         
     # Save model
     torch.save(net.state_dict(), final_model_save_path)
     print('Final model saved to {}'.format(final_model_save_path))
 
     # Load best model before saving
-    if best_model_state is not None:
-        net.load_state_dict(best_model_state)
-        torch.save(net.state_dict(), best_model_save_path)
-        print('Best model saved to {}'.format(best_model_save_path))
+    net.load_state_dict(best_model_state)
+    torch.save(net.state_dict(), best_model_save_path)
+    print('Best model saved to {}'.format(best_model_save_path))
+    
+    print('Evaluating on test set...')
+    avgp, avgndcg, test_loss, test_acc, test_results = evaluate(net, test_reader_iter)
+    print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.perturbed.best.results.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.best.results.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
-        for qid, values in best_results.items():
+        for qid, values in test_results.items():
             for true_label, pred_label in values:
                 f.write(f'{qid} {true_label} {pred_label}\n')
     print('Results saved to {}'.format(results_save_path))
