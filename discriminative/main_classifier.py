@@ -19,11 +19,11 @@ device = torch.device("cuda:0")
 features_count = 136 if 'MSLR' in dataset else 46
 num_epochs = 1000
 dropout_rate = 0.2 if 'MSLR' in dataset else 0.1
-learning_rate = 5e-4 if 'MSLR' in dataset else 5e-5
+learning_rate = 5e-4 if 'MSLR' in dataset else 5e-6
 num_hidden_nodes = 256 if 'MSLR' in dataset else 128
 batch_size = 1024
 
-wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_1dim")
+wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_2dim")
 wandb.config.update({
     'features_count': features_count,
     'num_epochs': num_epochs,
@@ -63,7 +63,7 @@ test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_siz
 # Create model, optimizer, and loss function
 net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach='classifier', dropout_rate=dropout_rate).to(device)
 optimizer = optim.Adam(net.parameters(), lr=learning_rate)
-criterion = nn.BCELoss()
+criterion = nn.CrossEntropyLoss()
 
 
 def train(net):
@@ -72,8 +72,7 @@ def train(net):
     e_size = 0
     for features, labels in train_reader_iter:
         e_size += 1
-        out = net(features).squeeze()
-        labels = labels.float()
+        out = net(features)
         loss = criterion(out, labels)
         
         optimizer.zero_grad()
@@ -93,14 +92,12 @@ def evaluate(net, data_iter):
         val_size = 0
         for features, labels, qids in data_iter:
             out = net(features).data.cpu()
-            out = out.squeeze()
-            labels = labels.float()
             
             loss = criterion(out, labels)
             val_loss += loss.item()
             val_size += 1
             
-            preds = (out > 0.5).int().cpu()
+            _, preds = torch.max(out, 1)
             acc = accuracy_score(labels.numpy(), preds.numpy())
             val_acc += acc
             
@@ -109,7 +106,7 @@ def evaluate(net, data_iter):
                 qid = qids[i].item()
                 if qid not in results:
                     results[qid] = []
-                results[qid].append((labels[i], out[i].item()))
+                results[qid].append((labels[i], out[i][1]))
         val_loss /= val_size
         val_acc /= val_size
 
@@ -142,8 +139,8 @@ if __name__ == '__main__':
             best_model_state = net.state_dict().copy()
 
 
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.best.pt')
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.best.pt')
         
     # Save model
     torch.save(net.state_dict(), final_model_save_path)
@@ -159,7 +156,7 @@ if __name__ == '__main__':
     print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.1dim.best.results.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.best.results.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_results.items():
