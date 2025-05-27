@@ -13,6 +13,7 @@ set_all_seeds(seed)
 
 approach = 'pointwise' # ['pointwise', 'pairwise']
 dataset = 'MQ2007' # ['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K']
+k = 1.0
 
 # Set hyperparameters
 device = torch.device("cuda:0")
@@ -20,19 +21,19 @@ features_count = 136 if 'MSLR' in dataset else 46
 num_steps_per_epoch = 2048
 num_epochs = 1000
 dropout_rate = 0.2 if 'MSLR' in dataset else 0.1
-learning_rate = 5e-4 if 'MSLR' in dataset else 1e-5
+learning_rate = 5e-4 if 'MSLR' in dataset else 5e-6
 num_hidden_nodes = 256 if 'MSLR' in dataset else 128
 batch_size = 1024
 
 features_count += 1 # Add 1 for time feature
 
-wandb.init(project=f"ltr_npy_{dataset}", name=f"exp_perturbed_{approach}")
-wandb.config.update({
-    'features_count': features_count,
-    'num_epochs': num_epochs,
-    'dropout_rate': dropout_rate,
-    'learning_rate': learning_rate,
-})
+# wandb.init(project=f"ltr_npy_{dataset}", name=f"exp_perturbed_{approach}")
+# wandb.config.update({
+#     'features_count': features_count,
+#     'num_epochs': num_epochs,
+#     'dropout_rate': dropout_rate,
+#     'learning_rate': learning_rate,
+# })
 
 
 net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach=approach, dropout_rate=dropout_rate).to(device)
@@ -46,12 +47,26 @@ elif approach == 'pointwise':
 # Set data paths
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-X_train = torch.from_numpy(np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k1.0', 'X_num_train.npy'))).float().to(device)
-y_train = torch.from_numpy(np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k1.0', 'y_train.npy'))).float().to(device)
+X_train = torch.from_numpy(np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_train.npy'))).float().to(device)
+y_train = torch.from_numpy(np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_train.npy'))).float().to(device)
 
-test_data_file = os.path.join(project_root, 'data', dataset, 'raw', 'Fold1', 'test.txt')
-test_reader = DataLoaderTest(test_data_file, batch_size=batch_size, features_count=features_count, device=device)
-test_reader_iter = iter(test_reader)
+X_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_val.npy'))
+y_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_val.npy'))
+idx_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_val.npy'))
+
+X_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_test.npy'))
+y_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_test.npy'))
+idx_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_test.npy'))
+
+# add zeros to the val and test sets for the time feature
+X_val = np.concatenate((X_val, np.zeros((X_val.shape[0], 1))), axis=1)
+X_test = np.concatenate((X_test, np.zeros((X_test.shape[0], 1))), axis=1)
+
+# Create a dataloader for the validation and test data using pytorch
+val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(idx_val).long())
+val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
+test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).long(), torch.from_numpy(idx_test).long())
+test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
 
 def forward_diffusion_step(x0, t, beta_schedule):
@@ -80,7 +95,6 @@ def forward_diffusion_step(x0, t, beta_schedule):
     xt = sqrt_alpha_bar * x0 + sqrt_one_minus_alpha_bar * noise
     return xt, noise
 
-    
 
 def train(net, train_reader_iter):
     net.train()
@@ -101,28 +115,27 @@ def train(net, train_reader_iter):
     return train_loss / e_size
 
 
-def test(net, epoch, train_loss):
+def evaluate(net, data_iter):
     net.eval()
     with torch.no_grad():
         results = {}
         val_loss = 0.0
         val_size = 0
-        for features, qids, labels, cnt in test_reader_iter:
+        for features, labels, qids in data_iter:
             out = net(features).data.cpu()
-            labels_tensor = torch.tensor(labels, dtype=torch.float32).view(-1, 1)
+            labels_tensor = labels.view(-1, 1)
             loss = criterion(out, labels_tensor)
             val_loss += loss.item()
             val_size += 1
             row_cnt = len(qids)
             for i in range(row_cnt):
-                if qids[i] not in results:
-                    results[qids[i]] = []
-                results[qids[i]].append((labels[i], out[i][0]))
+                qid = qids[i].item()
+                if qid not in results:
+                    results[qid] = []
+                results[qid].append((labels[i], out[i][0]))
         val_loss /= val_size
 
         avgndcg, avgp = calculate_metrics(results)
-        
-        print(f'epoch:{epoch}, loss: {train_loss}, val_loss: {val_loss}, avgp: {avgp}, avgndcg: {avgndcg}')
         
         return avgp, avgndcg, val_loss, results
 
@@ -132,15 +145,16 @@ if __name__ == '__main__':
     print('Dataset: {}'.format(dataset))
     print('Number of learnable parameters: {}'.format(net.parameter_count()))
     
-    best_val_loss = float('inf')
-    best_model_state = None
-    best_results = None
-    
+    avgp, avgndcg, val_loss, _ = evaluate(net, val_reader_iter)
+    print(f'epoch: 0, loss: None, val_loss: {val_loss}, avgp: {avgp}, avgndcg: {avgndcg}')
+    # wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss})
+
     # Beta schedule (e.g., linear from 1e-4 to 2e-2 over 50 steps)
     T = 50
     beta_schedule = torch.linspace(1e-4, 2e-2, T).to(device)
-
-    test(net, 0, 'n/a')
+    
+    best_val_loss = float('inf')
+    best_model_state = None
     for epoch in range(num_epochs):
         # Sample timestep t per sample in batch
         t = torch.randint(0, T, (X_train.size(0),))
@@ -156,21 +170,20 @@ if __name__ == '__main__':
         train_reader = torch.utils.data.TensorDataset(x_noisy, y_train)
         train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
         
-        
         train_loss = train(net, train_reader_iter)
-        avgp, avgndcg, val_loss, results = test(net, epoch + 1, str(train_loss))
         
-        wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss})
+        avgp, avgndcg, val_loss, _ = evaluate(net, val_reader_iter)
+        print(f'epoch:{epoch}, loss: {train_loss}, val_loss: {val_loss}, avgp: {avgp}, avgndcg: {avgndcg}')
+        # wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss})
         
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_model_state = net.state_dict().copy()
-            best_results = results
+
             
     final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.perturbed.final.pt')
     best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.perturbed.best.pt')
-    
         
     # Save model
     torch.save(net.state_dict(), final_model_save_path)
@@ -181,12 +194,16 @@ if __name__ == '__main__':
         net.load_state_dict(best_model_state)
         torch.save(net.state_dict(), best_model_save_path)
         print('Best model saved to {}'.format(best_model_save_path))
+    
+    print('Evaluating on test set...')
+    avgp, avgndcg, test_loss, test_results = evaluate(net, test_reader_iter)
+    print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}')
         
     # Save results
     results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.perturbed.best.results.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
-        for qid, values in best_results.items():
+        for qid, values in test_results.items():
             for true_label, pred_label in values:
                 f.write(f'{qid} {true_label} {pred_label}\n')
     print('Results saved to {}'.format(results_save_path))
