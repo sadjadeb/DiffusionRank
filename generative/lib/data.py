@@ -218,7 +218,7 @@ def normalize(
         normalizer = sklearn.preprocessing.QuantileTransformer(
             output_distribution='normal',
             n_quantiles=max(min(X['train'].shape[0] // 30, 1000), 10),
-            subsample=1e9,
+            subsample=int(1e9),
             random_state=seed,
         )
         # noise = 1e-3
@@ -231,6 +231,7 @@ def normalize(
         #     )
     else:
         util.raise_unknown('normalization', normalization)
+
     normalizer.fit(X_train)
     if return_normalizer:
         return {k: normalizer.transform(v) for k, v in X.items()}, normalizer
@@ -589,6 +590,118 @@ class FastTensorDataLoader:
 
     def __len__(self):
         return self.n_batches
+
+
+def balance_data(X, y, classes):
+    """
+    Balance the dataset by sampling approximately the same number of examples from each class.
+    
+    Args:
+        X (numpy.ndarray): Input features
+        y (numpy.ndarray): Target values
+        classes (numpy.ndarray): Class labels for each sample, shape (N, 1)
+    
+    Returns:
+        tuple: (X_balanced, y_balanced) - Balanced datasets
+    """
+    # Extract class labels (assuming they're in the first column of classes)
+    class_labels = classes.flatten() if classes.shape[1] == 1 else classes[:, 0]
+    
+    # Get unique classes and their counts
+    unique_classes = np.unique(class_labels)
+    class_indices = {cls: np.where(class_labels == cls)[0] for cls in unique_classes}
+    class_counts = {cls: len(indices) for cls, indices in class_indices.items()}
+    
+    # Print class distribution before balancing
+    print(f"Class distribution before balancing:")
+    total_before = sum(class_counts.values())
+    for cls, count in sorted(class_counts.items()):
+        print(f"  Class {cls}: {count} records ({count/total_before:.2%})")
+    
+    # Determine target number of samples per class
+    # We'll use the minimum class count to ensure we have enough samples
+    min_count = min(class_counts.values())
+    
+    # Sample indices from each class
+    balanced_indices = []
+    balanced_counts = {}
+    
+    for cls, indices in class_indices.items():
+        # Randomly sample min_count indices from this class
+        sampled_indices = np.random.choice(indices, size=min_count, replace=False)
+        balanced_indices.extend(sampled_indices)
+        balanced_counts[cls] = min_count
+        
+    # Print class distribution after balancing
+    print(f"\nClass distribution after balancing:")
+    total_after = sum(balanced_counts.values())
+    for cls, count in sorted(balanced_counts.items()):
+        print(f"  Class {cls}: {count} records ({count/total_after:.2%})")
+    
+    # Shuffle the balanced indices
+    np.random.shuffle(balanced_indices)
+    
+    # Create balanced datasets
+    X_balanced = X[balanced_indices]
+    y_balanced = y[balanced_indices]
+    
+    print(f"\nTotal records before: {total_before}")
+    print(f"Total records after: {total_after}")
+    print(f"Records per class after balancing: {min_count}")
+    
+    return X_balanced, y_balanced
+
+
+def prepare_balanced_fast_dataloader(
+    D: Dataset,
+    split: str,
+    batch_size: int
+):
+    # Get the data
+    if D.X_cat is not None:
+        if D.X_num is not None:
+            X_original = np.concatenate([D.X_num[split], D.X_cat[split]], axis=1)
+        else:
+            X_original = D.X_cat[split]
+    else:
+        X_original = D.X_num[split]
+    y_original = D.y[split]
+    
+    # Balance the data
+    X_balanced, y_balanced = balance_data(X_original, y_original, D.X_cat[split])
+    
+    # Convert to PyTorch tensors
+    X = torch.from_numpy(X_balanced).float()
+    y = torch.from_numpy(y_balanced)
+    
+    # Create the dataloader
+    dataloader = FastTensorDataLoader(X, y, batch_size=batch_size, shuffle=(split=='train'))
+    while True:
+        yield from dataloader
+
+def prepare_balanced_fast_torch_dataloader(
+    D: Dataset,
+    split: str,
+    batch_size: int
+):
+    # Get the data
+    if D.X_cat is not None:
+        X_original = np.concatenate([D.X_num[split], D.X_cat[split]], axis=1)
+    else:
+        X_original = D.X_num[split]
+    y_original = D.y[split]
+    
+    # Balance the data
+    X_balanced, y_balanced = balance_data(X_original, y_original, D.X_cat[split])
+    
+    # Convert to PyTorch tensors
+    X = torch.from_numpy(X_balanced).float()
+    y = torch.from_numpy(y_balanced)
+    
+    # Create the dataloader
+    dataloader = FastTensorDataLoader(X, y, batch_size=batch_size, shuffle=(split=='train'))
+    return dataloader
+
 
 def prepare_fast_dataloader(
     D : Dataset,

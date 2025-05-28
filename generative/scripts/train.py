@@ -10,6 +10,7 @@ from tab_ddpm.modules import MLPDiffusion
 import wandb
 import argparse
 import time
+from copy import deepcopy
 from tqdm import trange
 
 
@@ -105,7 +106,7 @@ class Trainer:
                 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
-                    best_model_state = self.diffusion._denoise_fn.state_dict()
+                    best_model_state = deepcopy(self.diffusion._denoise_fn.state_dict())
                     
                 
                 self.diffusion.train()
@@ -162,6 +163,9 @@ def train(
 
     train_loader = lib.prepare_fast_dataloader(dataset, split='train', batch_size=batch_size)
     val_loader = lib.prepare_fast_torch_dataloader(dataset, split='val', batch_size=batch_size)
+    
+    # train_loader = lib.prepare_balanced_fast_dataloader(dataset, split='train', batch_size=batch_size)
+    # val_loader = lib.prepare_balanced_fast_torch_dataloader(dataset, split='val', batch_size=batch_size)
 
     model = MLPDiffusion(**model_params).to(device)
     diffusion = GaussianMultinomialDiffusion(
@@ -209,9 +213,9 @@ if __name__ == '__main__':
     else:
         experiment_id = time.strftime('%Y-%m-%d_%H-%M-%S')
         if 'classification' in args.config:
-            raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, 'npy_cat', 'Fold1')
+            raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, 'npy_cat_bin', 'Fold1')
         else:
-            raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, 'npy', 'Fold1')
+            raw_config['real_data_path'] = raw_config['real_data_path'].format(dataset, 'npy_bin', 'Fold1')
         
     if args.approach == 'pairwise':
         experiment_id += "_pairwise"
