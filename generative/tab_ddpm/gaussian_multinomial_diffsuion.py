@@ -68,14 +68,14 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
             num_timesteps=1000,
             gaussian_loss_type='mse',
             gaussian_parametrization='eps',
-            multinomial_loss_type='vb_stochastic',
+            multinomial_loss_type='CE',
             parametrization='x0',
             scheduler='cosine',
             device=torch.device('cpu')
         ):
 
         super(GaussianMultinomialDiffusion, self).__init__()
-        assert multinomial_loss_type in ('vb_stochastic', 'vb_all')
+        assert multinomial_loss_type in ('vb_stochastic', 'vb_all', 'mse', 'CE')
         assert parametrization in ('x0', 'direct')
 
         if multinomial_loss_type == 'vb_all':
@@ -349,7 +349,7 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
 
         return log_probs
 
-    def q_pred(self, log_x_start, t):
+    def q_pred(self, log_x_start, t, gumbel_noise=None):
         log_cumprod_alpha_t = extract(self.log_cumprod_alpha, t, log_x_start.shape)
         log_1_min_cumprod_alpha = extract(self.log_1_min_cumprod_alpha, t, log_x_start.shape)
 
@@ -357,6 +357,17 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
             log_x_start + log_cumprod_alpha_t,
             log_1_min_cumprod_alpha - torch.log(self.num_classes_expanded)
         )
+
+        # Generate Gumbel noise
+        if gumbel_noise is None:
+            uniform = torch.rand_like(log_probs)
+            gumbel_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
+
+        # Scale Gumbel noise based on t, similar to Gaussian noise scaling
+        noise_at_t = extract(self.sqrt_one_minus_alphas_cumprod, t, log_x_start.shape)
+        gumbel_noise_t = gumbel_noise * noise_at_t
+
+        log_probs = log_probs + gumbel_noise_t
 
         return log_probs
 
@@ -406,8 +417,7 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
     def p_pred(self, model_out, log_x, t, out_dict):
         if self.parametrization == 'x0':
             log_x_recon = self.predict_start(model_out, log_x, t=t, out_dict=out_dict)
-            log_model_pred = self.q_posterior(
-                log_x_start=log_x_recon, log_x_t=log_x, t=t)
+            log_model_pred = self.q_posterior(log_x_start=log_x_recon, log_x_t=log_x, t=t)
         elif self.parametrization == 'direct':
             log_model_pred = self.predict_start(model_out, log_x, t=t, out_dict=out_dict)
         else:
@@ -436,22 +446,6 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
     def _sample(self, image_size, out_dict, batch_size = 16):
         return self.p_sample_loop((batch_size, 3, image_size, image_size), out_dict)
 
-    @torch.no_grad()
-    def interpolate(self, x1, x2, t = None, lam = 0.5):
-        b, *_, device = *x1.shape, x1.device
-        t = default(t, self.num_timesteps - 1)
-
-        assert x1.shape == x2.shape
-
-        t_batched = torch.stack([torch.tensor(t, device=device)] * b)
-        xt1, xt2 = map(lambda x: self.q_sample(x, t=t_batched), (x1, x2))
-
-        img = (1 - lam) * xt1 + lam * xt2
-        for i in reversed(range(0, t)):
-            img = self.p_sample(img, torch.full((b,), i, device=device, dtype=torch.long))
-
-        return img
-
     def log_sample_categorical(self, logits):
         full_sample = []
         for i in range(len(self.num_classes)):
@@ -464,8 +458,9 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
         log_sample = index_to_log_onehot(full_sample, self.num_classes)
         return log_sample
 
-    def q_sample(self, log_x_start, t):
-        log_EV_qxt_x0 = self.q_pred(log_x_start, t)
+    def q_sample(self, log_x_start, t, gumbel_noise=None):
+        log_EV_qxt_x0 = self.q_pred(log_x_start, t, gumbel_noise=gumbel_noise)
+        return log_EV_qxt_x0
 
         log_sample = self.log_sample_categorical(log_EV_qxt_x0)
 
@@ -543,7 +538,7 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
         else:
             raise ValueError
 
-    def _multinomial_loss(self, model_out, log_x_start, log_x_t, t, pt, out_dict):
+    def _multinomial_loss(self, model_out, log_x_start, log_x_t, t, pt, out_dict, noise=None):
 
         if self.multinomial_loss_type == 'vb_stochastic':
             kl = self.compute_Lt(
@@ -559,6 +554,35 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
             # Expensive, dont do it ;).
             # DEPRECATED
             return -self.nll(log_x_start)
+        
+        elif self.multinomial_loss_type == 'mse':
+            # 1
+            # model_out_softmax = F.softmax(model_out, dim=1)
+            # log_x_t_softmax = F.softmax(log_x_t, dim=1)
+            # loss = mean_flat((model_out_softmax - log_x_t_softmax) ** 2)
+            
+            # 2
+            # loss = mean_flat((noise - model_out) ** 2)
+            
+            #3
+            # log_x_start = [-1, 1, -1]
+            # log_x_t = [2.12, 0.89, -1.01]
+            # DEPREACATED: noise = log_x_t - log_x_start
+            # UPDATE: noise is the original sampled noise
+            # model_out = pred_noise
+            noise_softmax = F.softmax(log_x_t, dim=1)
+            model_out_softmax = F.softmax(log_x_start + model_out, dim=1)
+            loss = mean_flat((noise_softmax - model_out_softmax) ** 2)
+            
+            return loss
+        
+        elif self.multinomial_loss_type == 'CE':
+            log_x_recon = self.predict_start(model_out, log_x_t, t=t, out_dict=out_dict)
+            log_model_pred = self.q_posterior(log_x_start=log_x_recon, log_x_t=log_x_t, t=t)
+            loss = F.cross_entropy(log_model_pred, log_x_start.argmax(dim=1))
+            
+            return loss
+        
         else:
             raise ValueError()
 
@@ -597,7 +621,21 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
             x_num_t = self.gaussian_q_sample(x_num, t, noise=noise)
         if x_cat.shape[1] > 0:
             log_x_cat = index_to_log_onehot(x_cat.long(), self.num_classes)
-            log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t)
+            print('log_x_cat', log_x_cat[:5])
+            
+            uniform = torch.rand_like(log_x_cat)
+            gumble_noise = -torch.log(-torch.log(uniform + 1e-30) + 1e-30)
+            log_x_cat_t = self.q_sample(log_x_start=log_x_cat, t=t, gumbel_noise=gumble_noise)
+            print('log_x_cat_t', log_x_cat_t[:5])
+            
+            # TODO: 
+            log_x_recon = self.predict_start(gumble_noise, log_x_cat_t, t=t, out_dict=out_dict)
+            log_model_pred = self.q_posterior(log_x_start=log_x_recon, log_x_t=log_x_cat_t, t=t)
+            
+            print('log_x_recon', log_x_recon[:5])
+            print('log_model_pred', log_model_pred[:5])
+            return
+            
         
         x_in = torch.cat([x_num_t, log_x_cat_t], dim=1)
 
@@ -613,7 +651,7 @@ class GaussianMultinomialDiffusion(torch.nn.Module):
         loss_multi = torch.zeros((1,)).float()
         loss_gauss = torch.zeros((1,)).float()
         if x_cat.shape[1] > 0:
-            loss_multi = self._multinomial_loss(model_out_cat, log_x_cat, log_x_cat_t, t, pt, out_dict) / len(self.num_classes)
+            loss_multi = self._multinomial_loss(model_out_cat, log_x_cat, log_x_cat_t, t, pt, out_dict, gumble_noise) / len(self.num_classes)
         
         if x_num.shape[1] > 0:
             loss_gauss = self._gaussian_loss(model_out_num, x_num, x_num_t, t, noise)

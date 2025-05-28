@@ -130,8 +130,16 @@ def index_to_log_onehot(x, num_classes):
         onehots.append(F.one_hot(x[:, i], num_classes[i]))
  
     x_onehot = torch.cat(onehots, dim=1)
-    log_onehot = torch.log(x_onehot.float().clamp(min=1e-30))
-    return log_onehot
+    
+    # ORIGINAL CODE
+    # log_onehot = torch.log(x_onehot.float().clamp(min=1e-30))
+    # return log_onehot
+    
+    # MODIFIED CODE TO RETURN ONEHOT
+    signed_onehot = x_onehot * 2 - 1  # Replace 0 with -1 and 1 remains the same
+    signed_onehot = signed_onehot.float()
+    return signed_onehot
+   
 
 def log_sum_exp_by_classes(x, slices):
     device = x.device

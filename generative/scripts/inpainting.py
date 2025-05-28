@@ -304,6 +304,8 @@ def inpaint(
     current_labels = X[:, y_index]
     labels_unique = torch.unique(current_labels)
     random_labels = labels_unique[torch.randint(0, len(labels_unique), (X.shape[0],))]
+    # create random_labels all zeros
+    # random_labels = torch.zeros(X.shape[0])
     X[:, y_index] = random_labels
     
     test_loader = lib.FastTensorDataLoader(X, y, batch_size=batch_size)
@@ -336,14 +338,19 @@ def inpaint(
         
     y_pred = X_predicted_inversed[:, y_index]
     X_num_pred_inv = X_predicted_inversed[:, :num_numerical_features_]
+    
+    all_mses = np.mean((X_num_unnorm - X_num_pred_inv) ** 2, axis=0)
+    print(f'Average MSE: {np.mean(all_mses):.6f}')
+    print('_________________________________________')
+    
     for i in range(num_numerical_features_):
         mse = np.mean((X_num_unnorm[:, i] - X_num_pred_inv[:, i]) ** 2)
         print(f'MSE for index {i}: {mse:.6f}')
         
-    avgndcg, avgp = inpainter.evaluate_results(X_idx, y_pred, y_true)
-    print(f'strategy: {strategy}, avgndcg: {avgndcg}, avgp: {avgp}')
     avgndcg, avgp = inpainter.evaluate_results(X_idx, random_labels.numpy(), y_true)
     print(f'strategy: random_labels, avgndcg: {avgndcg}, avgp: {avgp}')
+    avgndcg, avgp = inpainter.evaluate_results(X_idx, y_pred, y_true)
+    print(f'strategy: {strategy}, avgndcg: {avgndcg}, avgp: {avgp}')
     
     plot_inpainting_outputs(parent_dir, y_index, D, X_num_unnorm, X_num_pred_inv, X_predicted_noisy, y_pred, strategy)
     inpainter.write_outputs(X_idx, X_predicted, y_pred)

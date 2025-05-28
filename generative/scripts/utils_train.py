@@ -108,7 +108,7 @@ def plot_inpainting_outputs(parent_dir, y_index, D, X_unnorm, X_num, X_predicted
     plt.figure(figsize=(10, 6))
     # Create the density plots
     sns.kdeplot(data=X_unnorm[:, y_index], label='Original Values', fill=True, alpha=0.5)
-    sns.kdeplot(data=X_predicted_noisy[:, y_index], label='Original Values + Noise', fill=True, alpha=0.5)
+    # sns.kdeplot(data=X_predicted_noisy[:, y_index], label='Original Values + Noise', fill=True, alpha=0.5)
     sns.kdeplot(data=X_num[:, y_index], label='Predicted Values', fill=True, alpha=0.5)
     
     sns.despine()
