@@ -212,7 +212,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             print(error_index)
             print(error_z_cat)
             print(error_q_xs)
-            pdb.set_trace()
         assert torch.all(z_cat < self.mask_index)
         sample = torch.cat([z_norm, z_cat], dim=1).cpu()
         return sample
@@ -343,8 +342,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         return loss
     
     def _sample_masked_prior(self, *batch_dims):
-        return self.mask_index[None,:] * torch.ones(    
-        * batch_dims, dtype=torch.int64, device=self.mask_index.device)
+        return self.mask_index[None,:] * torch.ones(*batch_dims, dtype=torch.int64, device=self.mask_index.device)
         
     def _mdlm_update(self, log_p_x0, x, alpha_t, alpha_s):
         """
@@ -365,8 +363,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         # the samples.
         # There is a noremalizing term is (1-\alpha_t) who's responsility is to ensure q_xs is normalized. 
         # However, omiting it won't make a difference for the Gumbel-max sampling trick in  _sample_categorical()
-        q_xs = log_p_x0.exp() * (move_chance_t
-                                - move_chance_s)
+        q_xs = log_p_x0.exp() * (move_chance_t - move_chance_s)
         q_xs[:, range(q_xs.shape[1]), self.mask_index] = move_chance_s[:, :, 0]
         
         # Important: make sure that prob of dummy classes are exactly 0
@@ -386,7 +383,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             print(error_index)
             print(error_z_cat)
             print(error_q_xs)
-            pdb.set_trace()
         return copy_flag * x + (1 - copy_flag) * _x, q_xs
 
     def _sample_categorical(self, categorical_probs):
@@ -569,10 +565,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         z_cat = torch.zeros((b, 0), device=device).float()      # the default values for categorical sample if the dataset has no categorical entry
         if has_cat:
             if impute_condition == "x_t":
-                z_cat = self._sample_masked_prior(
-                    b,
-                    len(self.num_classes),
-                )   # z_{t_max} is still all pushed to [MASK]
+                z_cat = self._sample_masked_prior(b, len(self.num_classes))   # z_{t_max} is still all pushed to [MASK]
             elif impute_condition == "x_0":
                 z_cat = x_cat
         

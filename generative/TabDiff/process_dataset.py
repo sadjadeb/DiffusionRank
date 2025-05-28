@@ -34,21 +34,7 @@ def preprocess_beijing():
 
     df_cleaned = data_df.dropna()
     df_cleaned.to_csv(info['data_path'], index = False)
-    
-def preprocess_beijing_dcr():
-    with open(f'{INFO_PATH}/beijing_dcr.json', 'r') as f:
-        info = json.load(f)
-    
-    data_path = info['raw_data_path']
 
-    data_df = pd.read_csv(data_path)
-    columns = data_df.columns
-
-    data_df = data_df[columns[1:]]
-
-
-    df_cleaned = data_df.dropna()
-    df_cleaned.to_csv(info['data_path'], index = False)
 
 def preprocess_news(remove_cat=False):
     name = 'news' if not remove_cat else 'news_nocat'
@@ -91,46 +77,6 @@ def preprocess_news(remove_cat=False):
     with open(f'{INFO_PATH}/{name}.json', 'w') as file:
         json.dump(info, file, indent=4)
         
-def preprocess_news_dcr(remove_cat=False):
-    name = 'news_dcr' if not remove_cat else 'news_nocat_dcr'
-    with open(f'{INFO_PATH}/{name}.json', 'r') as f:
-        info = json.load(f)
-
-    data_path = info['raw_data_path']
-    data_df = pd.read_csv(data_path)
-    data_df = data_df.drop('url', axis=1)
-
-    columns = np.array(data_df.columns.tolist())
-
-    cat_columns1 = columns[list(range(12,18))]
-    cat_columns2 = columns[list(range(30,38))]
-    
-    if not remove_cat:
-        cat_col1 = data_df[cat_columns1].astype(int).to_numpy().argmax(axis = 1)
-        cat_col2 = data_df[cat_columns2].astype(int).to_numpy().argmax(axis = 1)
-
-    data_df = data_df.drop(cat_columns2, axis=1)
-    data_df = data_df.drop(cat_columns1, axis=1)
-
-    if not remove_cat:
-        data_df['data_channel'] = cat_col1
-        data_df['weekday'] = cat_col2
-    
-    data_save_path = f'data/{name}/{name}.csv'
-    data_df.to_csv(f'{data_save_path}', index = False)
-
-    columns = np.array(data_df.columns.tolist())
-    num_columns = columns[list(range(45))]
-    cat_columns = ['data_channel', 'weekday'] if not remove_cat else []
-    target_columns = columns[[45]]
-
-    info['num_col_idx'] = list(range(45))
-    info['cat_col_idx'] = [46, 47] if not remove_cat else []
-    info['target_col_idx'] = [45]
-    info['data_path'] = data_save_path
-    
-    with open(f'{INFO_PATH}/{name}.json', 'w') as file:
-        json.dump(info, file, indent=4)    
 
 def get_column_name_mapping(data_df, num_col_idx, cat_col_idx, target_col_idx, column_names = None):
     
@@ -209,12 +155,8 @@ def process_data(name):
         preprocess_news()
     elif name == 'news_nocat':
         preprocess_news(remove_cat=True)
-    elif name == 'news_dcr':
-        preprocess_news_dcr()
     elif name == 'beijing':
         preprocess_beijing()
-    elif name == 'beijing_dcr':
-        preprocess_beijing_dcr()
     
     with open(f'{INFO_PATH}/{name}.json', 'r') as f:
         info = json.load(f)
@@ -268,20 +210,9 @@ def process_data(name):
             
         train_df = data_df
         
-        if "dcr" in name:   # create 50/50 splits for dcr datasets
-            complete_df = pd.concat([train_df, test_df, val_df], axis = 0, ignore_index=True)
-            num_data = complete_df.shape[0]
-            num_train = int(num_data*0.5)
-            num_test = num_data - num_train
-            complete_df.rename(columns = idx_name_mapping, inplace=True)
-            train_df, test_df, seed = train_val_test_split(complete_df, cat_columns, num_train, num_test)
-
     else:  
         # Train/ Test Split, 90% Training (50% for dcr eval exclusively), 10% Testing (Validation set will be selected from Training set)
-        if "dcr" in name:
-            num_train = int(num_data*0.5)
-        else:
-            num_train = int(num_data*0.9)
+        num_train = int(num_data*0.9)
         num_test = num_data - num_train
 
         train_df, test_df, seed = train_val_test_split(data_df, cat_columns, num_train, num_test)
@@ -366,9 +297,6 @@ def process_data(name):
     
     if train_df.isna().any().any():
         print("Training data contains nan in the numerical cols")
-        import pdb; pdb.set_trace()
-
-
     
     X_num_train = train_df[num_columns].to_numpy().astype(np.float32)
     X_cat_train = train_df[cat_columns].to_numpy()

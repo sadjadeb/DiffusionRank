@@ -346,52 +346,6 @@ class Trainer:
         avg_std.to_csv(f"{save_dir}/avg_std.csv", index=True)
         print_with_bar(f"The AVG over {num_runs} runs are: \n{avg_std}")
         
-    def report_test_dcr(self, num_runs):
-        save_dir = self.result_save_path
-        
-        dcr_ = []
-        dcr_real_ = []
-        dcr_test_ = []
-        for i in range(num_runs):
-            print_with_bar(f"DCR Evaluation Run {i}")
-            out_metrics, extras, syn_df = self.evaluate_generation()
-            print(f"Results of Run {i} are: \n{out_metrics}")
-            dcr_.append(out_metrics["dcr"])
-            dcr_real_.append(extras["dcr_real"])
-            dcr_test_.append(extras["dcr_test"])
-            save_path = os.path.join(save_dir, "all_samples")
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            syn_df.to_csv(os.path.join(save_path, f"samples_{i}.csv"), index=False)
-
-        dcr_ = np.array(dcr_)
-        
-        dcr_percent = dcr_ * 100
-        
-        all_results = pd.DataFrame({
-            "dcr": dcr_percent,
-        })
-        avg = all_results.mean(axis=0).round(3)
-        std = all_results.std(axis=0).round(3)
-        avg_std = pd.concat([avg, std], axis=1, ignore_index=True)
-        avg_std.columns = ["avg", "std"]
-        avg_std.index = [
-            "dcr", 
-        ]
-        
-        # Savings
-        all_results.to_csv(f"{save_dir}/all_results.csv", index=True)
-        avg_std.to_csv(f"{save_dir}/avg_std.csv", index=True)
-        dcr_real = np.concatenate(dcr_real_, axis=0)
-        dcr_test = np.concatenate(dcr_test_, axis=0)
-        dcr_df = pd.DataFrame({
-            "dcr_real": dcr_real,
-            "dcr_test": dcr_test
-        })
-        dcr_df.to_csv(f"{save_dir}/dcr.csv", index=False)
-        
-        print_with_bar(f"The AVG over {num_runs} runs are: \n{avg_std}")
-        
     def test(self):    
         out_metrics, _, _ = self.evaluate_generation(save_metric_details=True, plot_density=True)
         print_with_bar(f"Results of the test are: \n{out_metrics}")
@@ -433,14 +387,6 @@ class Trainer:
                 else:
                     raise NotImplementedError(f"Extra file generated during evaluations has type {type(extra)}, and code to save this type of file is not implemented")
         
-        # Plot density figures
-        if plot_density:
-            img = self.metrics.plot_density(syn_df_loaded)
-            path = os.path.join(save_path, "density_plots.png")
-            img.save(path)
-            print(
-                f"The density plots are saved at {path}"
-            )
         return out_metrics, extras, syn_df
         
 
@@ -595,7 +541,6 @@ def split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse):
         syn_num = syn_num[:, len(target_col_idx):]
     
     else:
-        print(syn_cat.shape)
         syn_target = syn_cat[:, :len(target_col_idx)]
         syn_cat = syn_cat[:, len(target_col_idx):]
 
