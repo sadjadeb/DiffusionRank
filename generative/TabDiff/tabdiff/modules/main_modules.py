@@ -61,6 +61,34 @@ class MLPDiffusion(nn.Module):
         x = self.proj(x) + emb
         return self.mlp(x)
     
+
+class OnlyMLPDiffusion(nn.Module):
+    def __init__(self, d_in, dim_t=512, use_mlp=True):
+        super().__init__()
+        self.use_mlp = use_mlp
+
+        total_in_dim = d_in + 1  # add 1 for timestep conditioning
+        
+        layers = []
+        last_dim = total_in_dim
+        
+        for _ in range(4):
+            layers.append(nn.Linear(last_dim, dim_t))
+            layers.append(nn.ReLU())
+            layers.append(nn.LayerNorm(dim_t))
+            layers.append(nn.Dropout(p=0.1))
+            last_dim = dim_t
+        layers.append(nn.Linear(last_dim, d_in))
+        
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x, timesteps):
+        if timesteps.ndim == 1:
+            timesteps = timesteps.view(-1, 1)  # [bs] -> [bs, 1]
+        x = torch.cat([x, timesteps], dim=-1)  # [bs, d_in + 1]
+        return self.mlp(x)
+
+
 class UniModMLP(nn.Module):
     """
         Input:
@@ -95,6 +123,39 @@ class UniModMLP(nn.Module):
         pred_e = self.decoder(pred_y.reshape(*y.shape))
         x_num_pred, x_cat_pred = self.detokenizer(pred_e)
         x_cat_pred = torch.cat(x_cat_pred, dim=-1) if len(x_cat_pred)>0 else torch.zeros_like(x_cat).to(x_num_pred.dtype)
+
+        return x_num_pred, x_cat_pred
+
+
+class UniModOnlyMLP(nn.Module):
+    """
+    A simplified MLP-only model.
+    
+    Input:
+        x_num: [bs, d_numerical]
+        x_cat: [bs, d_categorical]
+        timesteps: [bs]
+    Output:
+        x_num_pred: [bs, d_numerical]
+        x_cat_pred: [bs, d_categorical] (UNNORMALIZED logits)
+    """
+    def __init__(
+        self, d_numerical, categories, dim_t=512, use_mlp=True, **kwargs
+    ):
+        super().__init__()
+        self.d_numerical = d_numerical
+        self.categories = categories
+        d_categorical = sum(categories)
+
+        d_in = d_numerical + d_categorical
+        self.mlp = OnlyMLPDiffusion(d_in=d_in, dim_t=dim_t, use_mlp=use_mlp)
+
+    def forward(self, x_num, x_cat, timesteps):
+        x = torch.cat([x_num, x_cat], dim=-1)  # [bs, d_numerical + sum(categories)]
+        out = self.mlp(x, timesteps)
+
+        x_num_pred = out[:, :self.d_numerical]
+        x_cat_pred = out[:, self.d_numerical:]
 
         return x_num_pred, x_cat_pred
 

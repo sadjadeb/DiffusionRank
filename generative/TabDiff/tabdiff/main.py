@@ -6,7 +6,7 @@ import random
 
 import numpy as np
 from tabdiff.metrics import TabMetrics
-from tabdiff.modules.main_modules import UniModMLP
+from tabdiff.modules.main_modules import UniModMLP, UniModOnlyMLP
 from tabdiff.modules.main_modules import Model
 from tabdiff.models.unified_ctime_diffusion import UnifiedCtimeDiffusion
 from tabdiff.trainer import Trainer
@@ -64,7 +64,7 @@ def main(args):
         ckpt_path = args.ckpt_path
         if ckpt_path is None:
             ckpt_parent_path = f"{curr_dir}/ckpt/{dataname}/{exp_name}"
-            ckpt_path_arr = glob.glob(f"{ckpt_parent_path}/best_ema_model*")
+            ckpt_path_arr = glob.glob(f"{ckpt_parent_path}/best_model*")
             assert ckpt_path_arr, f"Cannot not infer ckpt_path from {ckpt_parent_path}, please make sure that you first train a model before testing!"
             ckpt_path = ckpt_path_arr[0]
         config_path = os.path.join(os.path.dirname(ckpt_path), 'config.pkl')
@@ -163,7 +163,7 @@ def main(args):
         main_model_path = args.ckpt_path
         if main_model_path is None:
             main_model_parent_path = f"{curr_dir}/ckpt/{dataname}/{exp_name.replace('_y_only', '')}"
-            main_model_path_arr = glob.glob(f"{main_model_parent_path}/best_ema_model*")
+            main_model_path_arr = glob.glob(f"{main_model_parent_path}/best_model*")
             assert main_model_path_arr, f"Cannot not infer the main model's ckpt_path from {main_model_parent_path}, please make sure that you first train a main model before training the y_only model!"
             main_model_path = main_model_path_arr[0]
         main_model_configs = pickle.load(open(os.path.join(os.path.dirname(main_model_path), 'config.pkl'), 'rb'))
@@ -182,7 +182,7 @@ def main(args):
                 )
                 raw_config['diffusion_params']['noise_schedule_params']['k'] = noise_schedule.k()[0].item()    # the target col is placed at the first position
             
-    backbone = UniModMLP(
+    backbone = UniModOnlyMLP(
         **raw_config['unimodmlp_params']
     )
     model = Model(backbone, **raw_config['diffusion_params']['edm_params'])
@@ -194,13 +194,13 @@ def main(args):
         y_only_model_path = args.y_only_model_path
         if y_only_model_path is None:
             y_only_model_parent_path = f"{curr_dir}/ckpt/{dataname}/{exp_name}_y_only"
-            y_only_model_path_arr = glob.glob(f"{y_only_model_parent_path}/best_ema_model*")
+            y_only_model_path_arr = glob.glob(f"{y_only_model_parent_path}/best_model*")
             assert y_only_model_path_arr, f"Cannot not infer y_only model's ckpt_path from {y_only_model_parent_path}, please make sure that you first train a y_only model before testing imputation!"
             y_only_model_path = y_only_model_path_arr[0]
         y_only_model_config_path = os.path.join(os.path.dirname(y_only_model_path), 'config.pkl')
         with open(y_only_model_config_path, 'rb') as f:
                 y_only_model_config = pickle.load(f)
-        y_only_model = UniModMLP(
+        y_only_model = UniModOnlyMLP(
             **y_only_model_config['unimodmlp_params']
         )
         y_only_model = Model(y_only_model, **y_only_model_config['diffusion_params']['edm_params'])
