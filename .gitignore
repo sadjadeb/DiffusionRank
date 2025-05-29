@@ -18,3 +18,10 @@
 environment.yml
 /automated_run_scripts
 generative/pt_experiments
+
+# TabDiff specific
+generative/TabDiff/synthetic/
+generative/TabDiff/impute/
+generative/TabDiff/tabdiff/result/
+generative/TabDiff/eval/report_runs/
+**/ckpt/*
