@@ -98,18 +98,19 @@ def main(args):
     raw_config['deterministic'] = args.deterministic
     if args.deterministic:
         print("DETERMINISTIC MODE is enabled!!!")
+        seed = 42
         ## Set global random seeds
-        torch.manual_seed(0)
-        random.seed(0)
-        np.random.seed(0)
+        torch.manual_seed(seed)
+        random.seed(seed)
+        np.random.seed(seed)
 
         ## Ensure deterministic CUDA operations
-        os.environ['PYTHONHASHSEED'] = '0'
+        os.environ['PYTHONHASHSEED'] = '42'
         os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'  # or ':16:8'
         torch.use_deterministic_algorithms(True)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed(0)
-            torch.cuda.manual_seed_all(0)
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
     
