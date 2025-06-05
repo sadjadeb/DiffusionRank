@@ -7,6 +7,7 @@ import wandb
 from utils import set_all_seeds, calculate_metrics
 from model import DNN
 from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import QuantileTransformer
 
 seed = 42
 set_all_seeds(seed)
@@ -17,18 +18,22 @@ k = 1.0
 # Set hyperparameters
 device = torch.device("cuda:0")
 features_count = 136 if 'MSLR' in dataset else 46
-num_epochs = 1000
-dropout_rate = 0.2 if 'MSLR' in dataset else 0.1
-learning_rate = 5e-4 if 'MSLR' in dataset else 5e-6
+data_normalization = 'quantile'  # ['quantile', None]
+num_epochs = 2000
+dropout_rate = 0.1
+learning_rate = 5e-6
 num_hidden_nodes = 256 if 'MSLR' in dataset else 128
-batch_size = 1024
+batch_size = 4096
 
 wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_2dim")
 wandb.config.update({
     'features_count': features_count,
+    'data_normalization': data_normalization,
     'num_epochs': num_epochs,
     'dropout_rate': dropout_rate,
     'learning_rate': learning_rate,
+    'num_hidden_nodes': num_hidden_nodes,
+    'batch_size': batch_size,
 })
 
 # Set data paths
@@ -38,24 +43,37 @@ X_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k
 y_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_train.npy'))
 # Replace all 2 labels with 1
 y_train[y_train == 2] = 1
-# Create a dataloader for the training data using pytorch
-train_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float().to(device), torch.from_numpy(y_train).long().to(device))
-train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
 
 X_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_val.npy'))
 y_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_val.npy'))
 idx_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_val.npy'))
 # Replace all 2 labels with 1
 y_val[y_val == 2] = 1
-# Create a dataloader for the validation data using pytorch
-val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(idx_val).long())
-val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
 
 X_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_test.npy'))
 y_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_test.npy'))
 idx_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_test.npy'))
 # Replace all 2 labels with 1
 y_test[y_test == 2] = 1
+
+if data_normalization == 'quantile':
+    # Apply QuantileTransformer
+    normalizer = QuantileTransformer(
+                output_distribution='normal',
+                n_quantiles=max(min(X_train.shape[0] // 30, 1000), 10),
+                subsample=int(1e9),
+                random_state=seed,
+            )
+    X_train = normalizer.fit_transform(X_train)
+    X_val = normalizer.transform(X_val)
+    X_test = normalizer.transform(X_test)
+
+# Create a dataloader for the training data using pytorch
+train_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float().to(device), torch.from_numpy(y_train).long().to(device))
+train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
+# Create a dataloader for the validation data using pytorch
+val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(idx_val).long())
+val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
 # Create a dataloader for the test data using pytorch
 test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).long(), torch.from_numpy(idx_test).long())
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)

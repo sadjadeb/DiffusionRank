@@ -7,6 +7,7 @@ import wandb
 from utils import set_all_seeds, calculate_metrics
 from model import DNN
 from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import QuantileTransformer
 
 seed = 42
 set_all_seeds(seed)
@@ -17,28 +18,31 @@ k = 1.0
 # Set hyperparameters
 device = torch.device("cuda:0")
 features_count = 136 if 'MSLR' in dataset else 46
-num_steps_per_epoch = 2048
-num_epochs = 5000
-dropout_rate = 0.2 if 'MSLR' in dataset else 0.1
-learning_rate = 5e-4 if 'MSLR' in dataset else 5e-6
+data_normalization = 'quantile'  # ['quantile', None]
+num_epochs = 2000
+dropout_rate = 0.1
+learning_rate = 5e-6
 num_hidden_nodes = 256 if 'MSLR' in dataset else 128
-batch_size = 1024
+batch_size = 4096
 
 features_count += 1 # Add 1 for time feature
 
 wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_perturbed_2dim")
 wandb.config.update({
     'features_count': features_count,
+    'data_normalization': data_normalization,
     'num_epochs': num_epochs,
     'dropout_rate': dropout_rate,
     'learning_rate': learning_rate,
+    'num_hidden_nodes': num_hidden_nodes,
+    'batch_size': batch_size,
 })
 
 # Set data paths
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-X_train = torch.from_numpy(np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_train.npy'))).float().to(device)
-y_train = torch.from_numpy(np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_train.npy'))).to(device)
+X_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_train.npy'))
+y_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_train.npy'))
 # Replace all 2 labels with 1
 y_train[y_train == 2] = 1
 
@@ -53,6 +57,22 @@ y_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{
 idx_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_test.npy'))
 # Replace all 2 labels with 1
 y_test[y_test == 2] = 1
+
+if data_normalization == 'quantile':
+    # Apply QuantileTransformer
+    normalizer = QuantileTransformer(
+                output_distribution='normal',
+                n_quantiles=max(min(X_train.shape[0] // 30, 1000), 10),
+                subsample=int(1e9),
+                random_state=seed,
+            )
+    X_train = normalizer.fit_transform(X_train)
+    X_val = normalizer.transform(X_val)
+    X_test = normalizer.transform(X_test)
+
+# Convert to torch tensors
+X_train = torch.from_numpy(X_train).float().to(device)
+y_train = torch.from_numpy(y_train).to(device)
 
 # add zeros to the val and test sets for the time feature
 X_val = np.concatenate((X_val, np.zeros((X_val.shape[0], 1))), axis=1)
