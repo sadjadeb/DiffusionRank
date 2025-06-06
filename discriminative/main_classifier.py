@@ -8,6 +8,8 @@ from utils import set_all_seeds, calculate_metrics
 from model import DNN
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import QuantileTransformer
+import itertools
+
 
 seed = 42
 set_all_seeds(seed)
@@ -19,7 +21,8 @@ k = 1.0
 device = torch.device("cuda:0")
 features_count = 136 if 'MSLR' in dataset else 46
 data_normalization = 'quantile'  # ['quantile', None]
-num_epochs = 2000
+num_training_steps = 8000
+eval_every = 4
 dropout_rate = 0.1
 learning_rate = 5e-6
 num_hidden_nodes = 256 if 'MSLR' in dataset else 128
@@ -29,7 +32,7 @@ wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_2dim")
 wandb.config.update({
     'features_count': features_count,
     'data_normalization': data_normalization,
-    'num_epochs': num_epochs,
+    'num_training_steps': num_training_steps,
     'dropout_rate': dropout_rate,
     'learning_rate': learning_rate,
     'num_hidden_nodes': num_hidden_nodes,
@@ -71,6 +74,7 @@ if data_normalization == 'quantile':
 # Create a dataloader for the training data using pytorch
 train_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float().to(device), torch.from_numpy(y_train).long().to(device))
 train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
+train_reader_iter = itertools.cycle(train_reader_iter)  # Make the dataloader infinite
 # Create a dataloader for the validation data using pytorch
 val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(idx_val).long())
 val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
@@ -86,19 +90,16 @@ criterion = nn.CrossEntropyLoss()
 
 def train(net):
     net.train()
-    train_loss = 0.0
-    e_size = 0
-    for features, labels in train_reader_iter:
-        e_size += 1
-        out = net(features)
-        loss = criterion(out, labels)
-        
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        train_loss += loss.item()
     
-    return train_loss / e_size
+    features, labels = next(train_reader_iter)
+    out = net(features)
+    loss = criterion(out, labels)
+    
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    
+    return loss.item()
 
 
 def evaluate(net, data_iter):
@@ -139,26 +140,27 @@ if __name__ == '__main__':
     print('Number of learnable parameters: {}'.format(net.parameter_count()))
     
     avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
-    print(f'epoch: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
+    print(f'step: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
     wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
     
     best_val_loss = float('inf')
     best_model_state = None
-    for epoch in range(num_epochs):
+    for step in range(num_training_steps):
         train_loss = train(net)
         
-        avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
-        print(f'epoch:{epoch+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
-        wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
-        
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_model_state = net.state_dict().copy()
+        if (step + 1) % eval_every == 0:
+            avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
+            print(f'step:{step+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
+            wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
+            
+            # Save best model
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_model_state = net.state_dict().copy()
 
 
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.best.pt')
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.best.pt')
         
     # Save model
     torch.save(net.state_dict(), final_model_save_path)
@@ -174,7 +176,7 @@ if __name__ == '__main__':
     print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.best.results.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.best.results.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_results.items():

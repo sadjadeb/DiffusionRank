@@ -9,6 +9,7 @@ from model import DNN
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import QuantileTransformer
 
+
 seed = 42
 set_all_seeds(seed)
 
@@ -19,7 +20,8 @@ k = 1.0
 device = torch.device("cuda:0")
 features_count = 136 if 'MSLR' in dataset else 46
 data_normalization = 'quantile'  # ['quantile', None]
-num_epochs = 2000
+num_training_steps = 8000
+eval_every = 4
 dropout_rate = 0.1
 learning_rate = 5e-6
 num_hidden_nodes = 256 if 'MSLR' in dataset else 128
@@ -31,7 +33,7 @@ wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_perturbed_2dim")
 wandb.config.update({
     'features_count': features_count,
     'data_normalization': data_normalization,
-    'num_epochs': num_epochs,
+    'num_training_steps': num_training_steps,
     'dropout_rate': dropout_rate,
     'learning_rate': learning_rate,
     'num_hidden_nodes': num_hidden_nodes,
@@ -117,21 +119,17 @@ def forward_diffusion_step(x0, t, beta_schedule):
     return xt, noise
 
 
-def train(net, train_reader_iter):
+def train(net, features, labels):
     net.train()
-    train_loss = 0.0
-    e_size = 0
-    for features, labels in train_reader_iter:
-        e_size += 1
-        out = net(features)
-        loss = criterion(out, labels)
-        
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        train_loss += loss.item()
     
-    return train_loss / e_size
+    out = net(features)
+    loss = criterion(out, labels)
+    
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    
+    return loss.item()
 
 
 def evaluate(net, data_iter):
@@ -172,45 +170,47 @@ if __name__ == '__main__':
     print('Number of learnable parameters: {}'.format(net.parameter_count()))
     
     avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
-    print(f'epoch: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
+    print(f'step: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
     wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
     
     
-    # Beta schedule (e.g., linear from 1e-4 to 2e-2 over 50 steps)
+    # Beta schedule (e.g., linear from 1e-5 to 1e-3 over 50 steps)
     T = 50
-    beta_schedule = torch.linspace(1e-4, 2e-2, T).to(device)
+    beta_schedule = torch.linspace(1e-5, 1e-3, T).to(device)
 
     best_val_loss = float('inf')
     best_model_state = None
-    for epoch in range(num_epochs):
-        # Sample timestep t per sample in batch
-        t = torch.randint(0, T, (X_train.size(0),))
+    for step in range(num_training_steps):
+        # Sample batch indices
+        idx = torch.randint(0, X_train.size(0), (batch_size,), device=device)
+        x_batch = X_train[idx]
+        y_batch = y_train[idx]
+        
+        # Sample diffusion timestep for each example
+        t = torch.randint(0, T, (batch_size,), device=device)
         norm_t = t.float() / (T - 1)
-        norm_t = norm_t.to(device)
         
         # Perturb inputs
-        x_noisy, _ = forward_diffusion_step(X_train, t, beta_schedule)
+        x_noisy, _ = forward_diffusion_step(x_batch, t, beta_schedule)
         
         # Concatenate with time feature
         x_noisy = torch.cat((x_noisy, norm_t.view(-1, 1)), dim=1)
         
-        train_reader = torch.utils.data.TensorDataset(x_noisy, y_train)
-        train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
-    
-        train_loss = train(net, train_reader_iter)
+        train_loss = train(net, x_noisy, y_batch)
         
-        avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
-        print(f'epoch:{epoch+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
-        wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
-        
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_model_state = net.state_dict().copy()
+        if (step + 1) % eval_every == 0:
+            avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
+            print(f'step:{step+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
+            wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
+            
+            # Save best model
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_model_state = net.state_dict().copy()
 
 
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.perturbed.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.perturbed.best.pt')
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.4096.perturbed.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.4096.perturbed.best.pt')
         
     # Save model
     torch.save(net.state_dict(), final_model_save_path)
@@ -226,7 +226,7 @@ if __name__ == '__main__':
     print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.perturbed.best.results.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.4096.perturbed.best.results.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_results.items():
