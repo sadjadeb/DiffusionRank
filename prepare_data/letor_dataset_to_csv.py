@@ -44,7 +44,7 @@ def load_letor_data(file_path, mode):
 def write_dataset_to_csv(X, y, idx, output_folder, split):
     # Save data to CSV
     with open(os.path.join(output_folder, f'{split}.csv'), 'w') as f:
-        # f.write(f'{",".join([str(i) for i in range(X.shape[1] + 1)])},idx\n')
+        f.write(f'{",".join([str(i) for i in range(X.shape[1] + 1)])},{X.shape[1] + 1}\n')
         for i in range(X.shape[0]):
             f.write(f'{",".join([str(x) for x in X[i]])},{y[i]},{idx[i]}\n')
 
@@ -59,14 +59,14 @@ if __name__ == '__main__':
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
     
-    train_file_path = os.path.join(data_folder, 'train.txt', mode)
-    val_file_path = os.path.join(data_folder, 'vali.txt', mode)
-    test_file_path = os.path.join(data_folder, 'test.txt', mode)
+    train_file_path = os.path.join(data_folder, 'train.txt')
+    val_file_path = os.path.join(data_folder, 'vali.txt')
+    test_file_path = os.path.join(data_folder, 'test.txt')
 
     # Load data
-    X_train, y_train, idx_train = load_letor_data(train_file_path)
-    X_val, y_val, idx_val = load_letor_data(val_file_path)
-    X_test, y_test, idx_test = load_letor_data(test_file_path)
+    X_train, y_train, idx_train = load_letor_data(train_file_path, mode)
+    X_val, y_val, idx_val = load_letor_data(val_file_path, mode)
+    X_test, y_test, idx_test = load_letor_data(test_file_path, mode)
 
     # Write data to CSV
     write_dataset_to_csv(X_train, y_train, idx_train, output_folder, 'train')
