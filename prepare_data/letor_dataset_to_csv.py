@@ -44,7 +44,7 @@ def load_letor_data(file_path, mode):
 def write_dataset_to_csv(X, y, idx, output_folder, split):
     # Save data to CSV
     with open(os.path.join(output_folder, f'{split}.csv'), 'w') as f:
-        f.write(f'{",".join([str(i) for i in range(X.shape[1] + 1)])},{X.shape[1] + 1}\n')
+        # f.write(f'{",".join([str(i) for i in range(X.shape[1] + 1)])},{X.shape[1] + 1}\n')
         for i in range(X.shape[0]):
             f.write(f'{",".join([str(x) for x in X[i]])},{y[i]},{idx[i]}\n')
 
