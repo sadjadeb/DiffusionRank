@@ -118,9 +118,7 @@ def get_column_name_mapping(data_df, num_col_idx, cat_col_idx, target_col_idx, c
 def train_val_test_split(data_df, cat_columns, num_train = 0, num_test = 0):
     total_num = data_df.shape[0]
     idx = np.arange(total_num)
-
-
-    seed = 1234
+    seed = 42
 
     while True:
         np.random.seed(seed)
@@ -273,20 +271,16 @@ def process_data(name):
     for col in num_columns:
         if (train_df[col] == ' ?').sum() > 0:
             print(col)
-            import pdb; pdb.set_trace()
         if (train_df[col] == '?').sum() > 0:
             print(col)
-            import pdb; pdb.set_trace()
         train_df.loc[train_df[col] == '?', col] = np.nan
     for col in cat_columns:
         train_df.loc[train_df[col] == '?', col] = 'nan'
     for col in num_columns:
         if (train_df[col] == ' ?').sum() > 0:
             print(col)
-            import pdb; pdb.set_trace()
         if (train_df[col] == '?').sum() > 0:
             print(col)
-            import pdb; pdb.set_trace()
         test_df.loc[test_df[col] == '?', col] = np.nan
     for col in cat_columns:
         test_df.loc[test_df[col] == '?', col] = 'nan'
