@@ -28,7 +28,7 @@ TensorDict = Dict[str, torch.Tensor]
 
 CAT_MISSING_VALUE = 'nan'
 CAT_RARE_VALUE = '__rare__'
-Normalization = Literal['standard', 'quantile', 'minmax']
+Normalization = Literal['standard', 'quantile', 'minmax', 'none']
 NumNanPolicy = Literal['drop-rows', 'mean']
 CatNanPolicy = Literal['most_frequent']
 CatEncoding = Literal['one-hot', 'counter']
@@ -48,6 +48,17 @@ class StandardScaler1d(StandardScaler):
     def inverse_transform(self, X, *args, **kwargs):
         assert X.ndim == 1
         return super().inverse_transform(X[:, None], *args, **kwargs).squeeze(1)
+
+
+class IdenticalScaler:
+    def fit(self, X, *args, **kwargs):
+        return self
+
+    def transform(self, X, *args, **kwargs):
+        return X
+
+    def inverse_transform(self, X, *args, **kwargs):
+        return X
 
 
 def get_category_sizes(X: Union[torch.Tensor, np.ndarray]) -> List[int]:
@@ -225,14 +236,8 @@ def normalize(
             subsample=int(1e9),
             random_state=seed,
         )
-        # noise = 1e-3
-        # if noise > 0:
-        #     assert seed is not None
-        #     stds = np.std(X_train, axis=0, keepdims=True)
-        #     noise_std = noise / np.maximum(stds, noise)  # type: ignore[code]
-        #     X_train = X_train + noise_std * np.random.default_rng(seed).standard_normal(
-        #         X_train.shape
-        #     )
+    elif normalization == 'none':
+        normalizer = IdenticalScaler()
     else:
         util.raise_unknown('normalization', normalization)
 
