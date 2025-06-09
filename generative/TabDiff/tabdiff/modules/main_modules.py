@@ -68,6 +68,7 @@ class OnlyMLPDiffusion(nn.Module):
         self.use_mlp = use_mlp
 
         total_in_dim = d_in + 1  # add 1 for timestep conditioning
+        d_out = d_in - 1  # subtract 1 to prevent predicting the mask token logit
         
         layers = []
         last_dim = total_in_dim
@@ -78,7 +79,7 @@ class OnlyMLPDiffusion(nn.Module):
             layers.append(nn.LayerNorm(dim_t))
             layers.append(nn.Dropout(p=0.1))
             last_dim = dim_t
-        layers.append(nn.Linear(last_dim, d_in))
+        layers.append(nn.Linear(last_dim, d_out))
         
         self.mlp = nn.Sequential(*layers)
 

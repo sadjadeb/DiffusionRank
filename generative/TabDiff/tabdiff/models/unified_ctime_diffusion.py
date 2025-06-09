@@ -274,6 +274,12 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
     
     
     def _subs_parameterization(self, unormalized_prob, xt):
+        # Add a dummy class to the unnormalized probabilities to account for the mask category.
+        unormalized_prob = torch.cat((
+            unormalized_prob,
+            torch.zeros(unormalized_prob.shape[0], 1, device=unormalized_prob.device, dtype=unormalized_prob.dtype)
+        ), dim=-1)
+        
         # log prob at the mask index = - infinity
         unormalized_prob = self.pad(unormalized_prob, self.neg_infinity)
         
