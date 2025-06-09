@@ -124,7 +124,7 @@ def main(args):
     ## Load training data
     batch_size = raw_config['train']['main']['batch_size']
 
-    train_data = TabDiffDataset(dataname, data_dir, info, y_only=args.y_only, isTrain=True, dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
+    train_data = TabDiffDataset(dataname, data_dir, info, y_only=args.y_only, split='train', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
     train_loader = DataLoader(
         train_data,
         batch_size = batch_size,
@@ -133,7 +133,22 @@ def main(args):
     )
     d_numerical, categories = train_data.d_numerical, train_data.categories
     
-    val_data = TabDiffDataset(dataname, data_dir, info, y_only=args.y_only, isTrain=False, dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
+    val_data = TabDiffDataset(dataname, data_dir, info, y_only=args.y_only, split='val', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
+    val_loader = DataLoader(
+        val_data,
+        batch_size = batch_size,
+        shuffle = False,
+        num_workers = 4,
+    )
+    
+    test_data = TabDiffDataset(dataname, data_dir, info, y_only=args.y_only, split='test', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
+    test_loader = DataLoader(
+        test_data,
+        batch_size = batch_size,
+        shuffle = False,
+        num_workers = 4,
+    )
+    print(f"Train data size: {len(train_data)}, Val data size: {len(val_data)}, Test data size: {len(test_data)}")
 
     ## Load Metrics
     real_data_path = f'synthetic/{dataname}/real.csv'
@@ -246,7 +261,10 @@ def main(args):
         diffusion,
         train_loader,
         train_data,
+        val_loader,
         val_data,
+        test_loader,
+        test_data,
         metrics,
         logger,
         **raw_config['train']['main'],

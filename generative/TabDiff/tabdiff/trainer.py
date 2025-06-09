@@ -22,7 +22,7 @@ def print_with_bar(log_msg):
 
 class Trainer:
     def __init__(
-            self, diffusion, train_iter, dataset, test_dataset,  metrics, logger, 
+            self, diffusion, train_iter, train_dataset, val_iter, val_dataset, test_iter, test_dataset, metrics, logger, 
             lr, weight_decay,
             steps, batch_size, check_val_every,
             sample_batch_size, model_save_path, result_save_path,
@@ -51,7 +51,8 @@ class Trainer:
             param.detach_()
 
         self.train_iter = train_iter
-        self.dataset = dataset
+        self.dataset = train_dataset
+        self.val_iter = val_iter
         self.test_dataset = test_dataset
         self.steps = steps
         self.init_lr = lr
@@ -104,18 +105,17 @@ class Trainer:
 
         return dloss, closs
     
-    def compute_loss(self):      # eval loss is not weighted
+    def compute_loss(self, data_iter, closs_weight=1, dloss_weight=1):
         curr_dloss = 0.0
         curr_closs = 0.0
         curr_count = 0
-        data_iter = self.train_iter
         for batch in data_iter:
             x = batch.float().to(self.device)
             self.diffusion.eval()
             with torch.no_grad():
                 batch_dloss, batch_closs = self.diffusion.mixed_loss(x)
-            curr_dloss += batch_dloss.item() * len(x)
-            curr_closs += batch_closs.item() * len(x)
+            curr_dloss += batch_dloss.item() * len(x) * dloss_weight
+            curr_closs += batch_closs.item() * len(x) * closs_weight
             curr_count += len(x)
         mloss = np.around(curr_dloss / curr_count, 4)
         gloss = np.around(curr_closs / curr_count, 4)
@@ -166,16 +166,20 @@ class Trainer:
                     "lr": curr_lr,
                     "DLoss": np.around(curr_dloss/curr_count, 4),
                     "CLoss": np.around(curr_closs/curr_count, 4),
-                    "TotalLoss": np.around((curr_dloss + curr_closs)/curr_count, 4),
+                    "TotalLoss": np.around((curr_dloss * dloss_weight + curr_closs * closs_weight)/curr_count, 4),
                     "closs_weight": closs_weight,
                     "dloss_weight": dloss_weight,
                 })
                 
-            # Log training Loss
+            # Log Losses
             log_dict = {}
             mloss = np.around(curr_dloss / curr_count, 4)
             gloss = np.around(curr_closs / curr_count, 4)
-            total_loss = mloss + gloss
+            total_loss = mloss * dloss_weight + gloss * closs_weight
+            
+            val_mloss, val_gloss = self.compute_loss(self.val_iter, closs_weight=closs_weight, dloss_weight=dloss_weight)
+            val_loss = val_mloss * dloss_weight + val_gloss * closs_weight
+            
             if np.isnan(gloss):
                     print('Finding Nan in gaussian loss')
                     break
@@ -184,9 +188,12 @@ class Trainer:
                 "lr": curr_lr,
                 "closs_weight": closs_weight,
                 "dloss_weight": dloss_weight,
-                "loss/c_loss": gloss,
-                "loss/d_loss": mloss,
-                "loss/total_loss": total_loss
+                "loss/train_c_loss": gloss,
+                "loss/train_d_loss": mloss,
+                "loss/train_total_loss": total_loss,
+                "loss/val_c_loss": val_gloss,
+                "loss/val_d_loss": val_mloss,
+                "loss/val_total_loss": val_loss,
             }
             log_dict.update(loss_dict)
             
@@ -224,8 +231,8 @@ class Trainer:
             update_ema(self.ema_cat_schedule.parameters(), self.diffusion.cat_schedule.parameters(), rate=self.ema_decay)
 
             # Save ckpt base on the best training loss
-            if total_loss < best_loss and self.curr_epoch > 4000:
-                best_loss = total_loss
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
                 to_remove = glob.glob(os.path.join(self.model_save_path, f"best_model_*"))
                 if to_remove:
                     os.remove(to_remove[0])
@@ -234,14 +241,14 @@ class Trainer:
                     'num_schedule':self.diffusion.num_schedule.state_dict(), 
                     'cat_schedule': self.diffusion.cat_schedule.state_dict(),
                 }
-                torch.save(state_dicts, os.path.join(self.model_save_path, f'best_model_{np.round(total_loss,4)}_{epoch+1}.pt'))
+                torch.save(state_dicts, os.path.join(self.model_save_path, f'best_model_{np.round(val_loss,4)}_{epoch+1}.pt'))
                 patience = 0
             else:
                 patience += 1   # increment patience if best loss is not surpassed
             
             # Compute and log EMA model loss
             curr_model, curr_num_schedule, curr_cat_schedule = self.to_ema_model()
-            ema_mloss, ema_gloss = self.compute_loss()
+            ema_mloss, ema_gloss = self.compute_loss(self.train_iter)
             self.to_model(curr_model, curr_num_schedule, curr_cat_schedule)
             ema_total_loss = ema_mloss + ema_gloss
             ema_loss_dict = {
@@ -290,9 +297,7 @@ class Trainer:
 
         end_time = time.time()
         print_with_bar(f"Ending Trainnig Loop, totoal training time = {end_time - start_time}")
-        self.logger.log({
-            'training_time': end_time - start_time
-        })
+        self.logger.log({'training_time': end_time - start_time})
         
     def report_test(self, num_runs):
         save_dir = self.result_save_path

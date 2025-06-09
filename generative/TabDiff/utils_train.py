@@ -24,25 +24,28 @@ class TabularDataset(Dataset):
         return self.X_num.shape[0]
     
 class TabDiffDataset(Dataset):
-    def __init__(self, dataname, data_dir, info, isTrain=True, y_only=False, dequant_dist='none', int_dequant_factor=0.0):
+    def __init__(self, dataname, data_dir, info, split='train', y_only=False, dequant_dist='none', int_dequant_factor=0.0):
         self.dataname = dataname
         self.data_dir = data_dir
         self.info = info
-        self.isTrain = isTrain
 
         X_num, X_cat, categories, d_numerical, num_inverse, int_inverse, cat_inverse = preprocess(data_dir, y_only, dequant_dist, int_dequant_factor, task_type = info['task_type'], inverse=True)
         categories = np.array(categories)
 
-        X_train_num, _ = X_num
-        X_train_cat, _ = X_cat
+        X_train_num, X_test_num, X_val_num = X_num
+        X_train_cat, X_test_cat, X_val_cat = X_cat
 
-        X_train_num, X_test_num = X_num
-        X_train_cat, X_test_cat = X_cat
+        X_train_num, X_test_num, X_val_num = torch.tensor(X_train_num).float(), torch.tensor(X_test_num).float(), torch.tensor(X_val_num).float()
+        X_train_cat, X_test_cat, X_val_cat =  torch.tensor(X_train_cat), torch.tensor(X_test_cat), torch.tensor(X_val_cat)
 
-        X_train_num, X_test_num = torch.tensor(X_train_num).float(), torch.tensor(X_test_num).float()
-        X_train_cat, X_test_cat =  torch.tensor(X_train_cat), torch.tensor(X_test_cat)
-
-        self.X = torch.cat((X_train_num, X_train_cat), dim=1) if isTrain else torch.cat((X_test_num, X_test_cat), dim=1)
+        if split == 'train':
+            self.X = torch.cat((X_train_num, X_train_cat), dim=1)
+        elif split == 'test':
+            self.X = torch.cat((X_test_num, X_test_cat), dim=1)
+        elif split == 'val':
+            self.X = torch.cat((X_val_num, X_val_cat), dim=1)
+        else:
+            raise ValueError("split must be one of 'train', 'test', or 'val'")
         self.num_inverse = num_inverse
         self.int_inverse = int_inverse
         self.cat_inverse = cat_inverse
@@ -83,14 +86,14 @@ def preprocess(dataset_path, y_only=False, dequant_dist='none', int_dequant_fact
         X_num = dataset.X_num
         X_cat = dataset.X_cat
 
-        X_train_num, X_test_num = X_num['train'], X_num['test']
-        X_train_cat, X_test_cat = X_cat['train'], X_cat['test']
+        X_train_num, X_test_num, X_val_num = X_num['train'], X_num['test'], X_num['val']
+        X_train_cat, X_test_cat, X_val_cat = X_cat['train'], X_cat['test'], X_cat['val']
         
         categories = src.get_categories(X_train_cat)
         d_numerical = X_train_num.shape[1]
 
-        X_num = (X_train_num, X_test_num)
-        X_cat = (X_train_cat, X_test_cat)
+        X_num = (X_train_num, X_test_num, X_val_num)
+        X_cat = (X_train_cat, X_test_cat, X_val_cat)
 
 
         if inverse:
@@ -139,7 +142,7 @@ def make_dataset(
         X_num = {} if os.path.exists(os.path.join(data_path, 'X_num_train.npy')) else None
         y = {} if os.path.exists(os.path.join(data_path, 'y_train.npy')) else None
 
-        for split in ['train', 'test']:
+        for split in ['train', 'test', 'val']:
             X_num_t, X_cat_t, y_t = src.read_pure_data(data_path, split)
             if y_only:
                 X_num_t = X_num_t[:, :0]
