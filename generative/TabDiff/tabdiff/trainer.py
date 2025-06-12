@@ -99,7 +99,13 @@ class Trainer:
 
         dloss, closs = self.diffusion.mixed_loss(x)
 
-        loss = dloss_weight * dloss + closs_weight * closs
+        if closs_weight == 0.0:
+            loss = dloss_weight * dloss + closs_weight * closs.detach()  # detach the continuous loss to avoid backpropagating through it
+        elif dloss_weight == 0.0:
+            loss = dloss_weight * dloss.detach() + closs_weight * closs  # detach the discrete loss to avoid backpropagating through it
+        else:
+            loss = dloss_weight * dloss + closs_weight * closs
+        
         loss.backward()
         self.optimizer.step()
 
