@@ -159,8 +159,8 @@ if __name__ == '__main__':
                 best_model_state = net.state_dict().copy()
 
 
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.best.pt')
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.best.pt')
         
     # Save model
     torch.save(net.state_dict(), final_model_save_path)
@@ -176,7 +176,7 @@ if __name__ == '__main__':
     print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.best.results.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.best.results.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_results.items():
