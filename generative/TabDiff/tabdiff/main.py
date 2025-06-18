@@ -37,8 +37,6 @@ def main(args):
     dataname = args.dataname
     data_dir = f'data/{dataname}'
     info_path = f'data/{dataname}/info.json'
-    with open(info_path, 'r') as f:
-        info = json.load(f)
     
     ## Set up flags
     is_dcr = 'dcr' in dataname
@@ -59,6 +57,25 @@ def main(args):
     ckpt_path = None
     if args.mode == 'train':
         print("NEW training is started")
+        if args.k:
+            print(f"Training with {args.k} portion of the training data")
+            
+            exp_name += f"_k{args.k}"
+            data_dir = f'data/{dataname}_k{args.k}'
+            info_path = f'data/{dataname}_k{args.k}/info.json'
+            if not os.path.exists(data_dir):
+                raise ValueError(f"The data directory {data_dir} does not exist, please make sure that you first prepare the data for finetuning!")
+                    
+        if args.finetune:
+            print("Finetuning is enabled, will load the finetune_ckpt_path")
+            
+            ckpt_path = args.finetune_ckpt_path
+            raw_config['train']['main']['c_lambda'] = 0.0
+            raw_config['train']['main']['d_lambda'] = 1.0
+            if args.finetune_ckpt_path is None:
+                raise ValueError("Please provide the finetune_ckpt_path to finetune the model!")
+            if args.k is None:
+                raise ValueError("Please provide the amount of training data to be used for finetuning, e.g., 0.25 means 25% of the training data will be used for finetuning")
     elif args.mode == 'test':
         num_samples_to_generate = args.num_samples_to_generate
         ckpt_path = args.ckpt_path
@@ -74,6 +91,9 @@ def main(args):
                 print(f"Found cached config at {config_path}")
         raw_config = cached_raw_config
     
+    
+    with open(info_path, 'r') as f:
+        info = json.load(f)
     
     ## Creat model_save and result paths
     model_save_path, result_save_path = None, None
@@ -274,7 +294,8 @@ def main(args):
         result_save_path=raw_config['result_save_path'],
         device=device,
         ckpt_path=ckpt_path,
-        y_only=args.y_only
+        y_only=args.y_only,
+        is_finetune=args.finetune,
     )
     if args.mode == 'test':
         if args.report:

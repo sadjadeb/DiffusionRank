@@ -36,6 +36,7 @@ class Trainer:
             device=torch.device('cuda:1'),
             ckpt_path = None,
             y_only=False,
+            is_finetune=False,
             **kwargs
     ):
         self.y_only = y_only
@@ -82,7 +83,10 @@ class Trainer:
             self.diffusion.cat_schedule.load_state_dict(state_dicts['cat_schedule'])   
             print(f"Weights are loaded from {self.ckpt_path}")     
         
-        self.curr_epoch = int(os.path.basename(self.ckpt_path).split('_')[-1].split('.')[0]) if self.ckpt_path is not None else 0
+        if self.ckpt_path is None or is_finetune:
+            self.curr_epoch = 0
+        else:
+            self.curr_epoch = int(os.path.basename(self.ckpt_path).split('_')[-1].split('.')[0])
 
     def _anneal_lr(self, step):
         frac_done = step / self.steps

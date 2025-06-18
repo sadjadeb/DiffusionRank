@@ -35,6 +35,11 @@ if __name__ == '__main__':
     parser.add_argument('--w_num', type=float, default=0.6)
     parser.add_argument('--w_cat', type=float, default=0.6)
 
+    # Configs for fractional training and finetuning
+    parser.add_argument('--k', type=float, default=1.0, help='Portion of the training data to be used for training, e.g., 0.25 means 25% of the training data will be used')
+    parser.add_argument('--finetune', action='store_true')
+    parser.add_argument('--finetune_ckpt_path', type=str, default=None, help='Path to the model checkpoint to be finetuned')
+
     args = parser.parse_args()
 
     # check cuda
