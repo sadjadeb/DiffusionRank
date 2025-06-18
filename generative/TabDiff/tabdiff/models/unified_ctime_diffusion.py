@@ -246,8 +246,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         move_chance: float torch.Tensor with shape (batch_size, 1).
         """
         if strategy == 'hard':
-            move_indices = torch.rand(
-            * x.shape, device=x.device) < move_chance
+            move_indices = torch.rand(*x.shape, device=x.device) < move_chance
             xt = torch.where(move_indices, self.mask_index, x)
             xt_soft = self.to_one_hot(xt).to(move_chance.dtype)
             return xt, xt_soft
@@ -333,9 +332,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         """
             alpha: (bs,)
         """
-        log_p_theta = torch.gather(
-            model_output, -1, x0[:, :, None]
-        ).squeeze(-1)
+        log_p_theta = torch.gather(model_output, -1, x0[:, :, None]).squeeze(-1)
         alpha = torch.exp(-sigma)
         if self.cat_scheduler in ['log_linear_unified', 'log_linear_per_column']:
             elbo_weight = - dsigma / torch.expm1(sigma)
@@ -390,9 +387,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         return copy_flag * x + (1 - copy_flag) * _x, q_xs
 
     def _sample_categorical(self, categorical_probs):
-        gumbel_norm = (
-            1e-10
-            - (torch.rand_like(categorical_probs) + 1e-10).log())
+        gumbel_norm = (1e-10 - (torch.rand_like(categorical_probs) + 1e-10).log())
         return (categorical_probs / gumbel_norm).argmax(dim=-1)
     
     def sample_ctime_noise(self, batch):
@@ -530,34 +525,27 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             elif impute_condition == "x_0":
                 z_cat = x_cat
         
-        pbar = tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps)
-        pbar.set_description(f"Sampling Progress")
+        pbar = tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps, desc="Sampling Progress")
         for i in pbar:
-            for u in range (resample_rounds):
-                # Get known parts by Forward Flow
-                if impute_condition == "x_t":
-                    z_norm_known = x_num + torch.randn((b, self.num_numerical_features), device=device) * sigma_num_next[i]
-                    move_chance = 1 - torch.exp(-sigma_cat_next[i]) if i < (self.num_timesteps-1) else torch.ones_like(sigma_cat_next[i])     # force move_chance to be 1 for the first iteration
-                    z_cat_known, _ = self.q_xt(x_cat, move_chance)
-                elif impute_condition == "x_0":
-                    z_norm_known = x_num
-                    z_cat_known = x_cat
-                
-                # Get unknown by Reverse Step
-                z_norm_unknown, z_cat_unknown, q_xs = self.edm_update(
-                    z_norm, z_cat, i, 
-                    t[i], t[i-1] if i > 0 else None, t_hat[i],
-                    sigma_num_cur[i], sigma_num_next[i], sigma_num_hat[i], 
-                    sigma_cat_cur[i], sigma_cat_next[i], sigma_cat_hat[i],
-                )
-                z_norm = (1 - num_mask)  * z_norm_known + num_mask * z_norm_unknown
-                z_cat = (1 - cat_mask) * z_cat_known + cat_mask * z_cat_unknown
-
-                # Resample x_t from x_{t-1} by Foward Step
-                if u < resample_rounds-1:
-                    z_norm = z_norm + (sigma_num_cur[i] ** 2 - sigma_num_next[i] ** 2).sqrt() * S_noise * torch.randn_like(z_norm)
-                    move_chance = -torch.expm1(sigma_cat_next[i] - sigma_cat_cur[i])
-                    z_cat, _ = self.q_xt(z_cat, move_chance)
+            # Get known parts by Forward Flow
+            if impute_condition == "x_t":
+                z_norm_known = x_num + torch.randn((b, self.num_numerical_features), device=device) * sigma_num_next[i]
+                move_chance = 1 - torch.exp(-sigma_cat_next[i]) if i < (self.num_timesteps-1) else torch.ones_like(sigma_cat_next[i])     # force move_chance to be 1 for the first iteration
+                z_cat_known, _ = self.q_xt(x_cat, move_chance)
+            elif impute_condition == "x_0":
+                z_norm_known = x_num
+                z_cat_known = x_cat
+            
+            # Get unknown by Reverse Step
+            z_norm_unknown, z_cat_unknown, q_xs = self.edm_update(
+                z_norm, z_cat, i, 
+                t[i], t[i-1] if i > 0 else None, t_hat[i],
+                sigma_num_cur[i], sigma_num_next[i], sigma_num_hat[i], 
+                sigma_cat_cur[i], sigma_cat_next[i], sigma_cat_hat[i],
+            )
+            z_norm = (1 - num_mask)  * z_norm_known + num_mask * z_norm_unknown
+            z_cat = (1 - cat_mask) * z_cat_known + cat_mask * z_cat_unknown
+            z_cat = z_cat_unknown
         
         sample = torch.cat([z_norm, z_cat], dim=1).cpu()
         return sample
