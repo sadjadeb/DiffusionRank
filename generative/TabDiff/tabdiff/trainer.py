@@ -537,7 +537,7 @@ def split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse):
 
     syn_num = num_inverse(syn_num).astype(np.float32)
     syn_num = int_inverse(syn_num).astype(np.float32)
-    syn_cat = cat_inverse(syn_cat)
+    # syn_cat = cat_inverse(syn_cat)
 
 
     if info['task_type'] == 'regression':

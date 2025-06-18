@@ -453,6 +453,8 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             alpha_t = torch.exp(-sigma_cat_hat).unsqueeze(0).repeat(b,1)
             alpha_s = torch.exp(-sigma_cat_next).unsqueeze(0).repeat(b,1)
             x_cat_next, q_xs = self._mdlm_update(logits, x_cat_hat, alpha_t, alpha_s)
+            if i == 0:
+                x_cat_next = logits[:, :, 1]
         
         # Apply 2nd order correction.
         if self.sampler_params['second_order_correction']:
