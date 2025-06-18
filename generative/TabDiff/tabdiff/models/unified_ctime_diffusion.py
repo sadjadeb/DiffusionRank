@@ -21,7 +21,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             num_classes: np.array,
             num_numerical_features: int,
             denoise_fn,
-            y_only_model,
             num_timesteps=1000,
             scheduler='power_mean',
             cat_scheduler='log_linear',
@@ -59,7 +58,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             self.slices_for_classes_with_mask.append(np.arange(offsets[i - 1], offsets[i]))
 
         self._denoise_fn = denoise_fn
-        self.y_only_model = y_only_model
         self.num_timesteps = num_timesteps
         self.scheduler = scheduler
         self.cat_scheduler = cat_scheduler
@@ -422,7 +420,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         """
         i = T-1,...,0
         """
-        cfg = self.y_only_model is not None
         
         b = x_num_cur.shape[0]
         has_cat = len(self.num_classes) > 0
@@ -443,31 +440,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         # Apply cfg updates, if is in cfg mode
         is_bin_class = len(self.num_mask_idx) == 0
         is_learnable = self.scheduler=="power_mean_per_column"
-        if cfg:
-            if not is_learnable:
-                sigma_cond = sigma_num_hat
-            else:
-                if is_bin_class:
-                    sigma_cond = (0.002 ** (1/7) + t_hat * (80 ** (1/7) - 0.002 ** (1/7))).pow(7)
-                else:
-                    sigma_cond = sigma_num_hat[self.num_mask_idx]
-            y_num_hat = x_num_hat.float()[:, self.num_mask_idx]
-            idx = list(chain(*[self.slices_for_classes_with_mask[i] for i in self.cat_mask_idx]))
-            y_cat_hat = x_cat_hat_oh[:,idx]
-            y_only_denoised, y_only_raw_logits = self.y_only_model(
-                y_num_hat, 
-                y_cat_hat,
-                t_hat.squeeze().repeat(b), sigma=sigma_cond.unsqueeze(0).repeat(b,1)  # sigma accepts (bs, K_num)
-            )
-            
-            denoised[:, self.num_mask_idx] *= 1 + self.w_num
-            denoised[:, self.num_mask_idx] -= self.w_num*y_only_denoised
-            
-            mask_logit_idx = [self.slices_for_classes_with_mask[i] for i in self.cat_mask_idx]
-            mask_logit_idx = np.concatenate(mask_logit_idx) if len(mask_logit_idx)>0 else np.array([])
-            
-            raw_logits[:, mask_logit_idx] *= 1 + self.w_cat
-            raw_logits[:, mask_logit_idx] -= self.w_cat*y_only_raw_logits
         
         # Euler step
         d_cur = (x_num_hat - denoised) / sigma_num_hat
@@ -490,25 +462,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
                     x_num_next.float(), x_cat_hat_oh,
                     t_next.squeeze().repeat(b), sigma=sigma_num_next.unsqueeze(0).repeat(b,1)
                 )
-                if cfg:
-                    if not is_learnable:
-                        sigma_cond = sigma_num_next
-                    else:
-                        if is_bin_class:
-                            sigma_cond = (0.002 ** (1/7) + t_next * (80 ** (1/7) - 0.002 ** (1/7))).pow(7)
-                        else:
-                            sigma_cond = sigma_num_next[self.num_mask_idx]
-                    y_num_next = x_num_next.float()[:, self.num_mask_idx]
-                    idx = list(chain(*[self.slices_for_classes_with_mask[i] for i in self.cat_mask_idx]))
-                    y_cat_hat = x_cat_hat_oh[:, idx]
-                    y_only_denoised, y_only_raw_logits = self.y_only_model(
-                        y_num_next,
-                        y_cat_hat,
-                        t_next.squeeze().repeat(b), sigma=sigma_cond.unsqueeze(0).repeat(b,1)  # sigma accepts (bs, K_num)
-                    )
-                    denoised[:, self.num_mask_idx] *= 1 + self.w_num
-                    denoised[:, self.num_mask_idx] -= self.w_num*y_only_denoised
-                
                 d_prime = (x_num_next - denoised) / sigma_num_next
                 x_num_next = x_num_hat + (sigma_num_next - sigma_num_hat) * (0.5 * d_cur + 0.5 * d_prime)
         

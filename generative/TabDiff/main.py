@@ -16,7 +16,6 @@ if __name__ == '__main__':
     parser.add_argument('--deterministic', action='store_true', help='Whether to make the entire process deterministic, i.e., fix global random seeds')
     
     # Configs for tabdiff
-    parser.add_argument('--y_only', action='store_true', help='Train guidance model that only model the target column')
     parser.add_argument('--non_learnable_schedule', action='store_true', help='disable learnable noise schedule')
     
     # Configs for testing tabdiff
@@ -31,7 +30,6 @@ if __name__ == '__main__':
     parser.add_argument('--trial_size', type=int, default=50)
     parser.add_argument('--resample_rounds', type=int, default=1)
     parser.add_argument('--impute_condition', type=str, default="x_t")
-    parser.add_argument('--y_only_model_path', type=str, default=None, help="Path to the y_only model checkpoint that will be used as the unconditional guidance model")
     parser.add_argument('--w_num', type=float, default=0.6)
     parser.add_argument('--w_cat', type=float, default=0.6)
 

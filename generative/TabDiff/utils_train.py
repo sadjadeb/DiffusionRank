@@ -24,12 +24,12 @@ class TabularDataset(Dataset):
         return self.X_num.shape[0]
     
 class TabDiffDataset(Dataset):
-    def __init__(self, dataname, data_dir, info, split='train', y_only=False, dequant_dist='none', int_dequant_factor=0.0):
+    def __init__(self, dataname, data_dir, info, split='train', dequant_dist='none', int_dequant_factor=0.0):
         self.dataname = dataname
         self.data_dir = data_dir
         self.info = info
 
-        X_num, X_cat, categories, d_numerical, num_inverse, int_inverse, cat_inverse = preprocess(data_dir, y_only, dequant_dist, int_dequant_factor, task_type = info['task_type'], inverse=True)
+        X_num, X_cat, categories, d_numerical, num_inverse, int_inverse, cat_inverse = preprocess(data_dir, dequant_dist, int_dequant_factor, task_type = info['task_type'], inverse=True)
         categories = np.array(categories)
 
         X_train_num, X_test_num, X_val_num = X_num
@@ -58,7 +58,7 @@ class TabDiffDataset(Dataset):
     def __len__(self):
         return self.X.shape[0]
 
-def preprocess(dataset_path, y_only=False, dequant_dist='none', int_dequant_factor=0.0, task_type = 'binclass', inverse = False, cat_encoding = None, concat = True):
+def preprocess(dataset_path, dequant_dist='none', int_dequant_factor=0.0, task_type = 'binclass', inverse = False, cat_encoding = None, concat = True):
     
     T_dict = {}
 
@@ -79,7 +79,6 @@ def preprocess(dataset_path, y_only=False, dequant_dist='none', int_dequant_fact
         task_type = task_type,
         change_val = False,
         concat = concat,
-        y_only = y_only,
     )
 
     if cat_encoding is None:
@@ -133,7 +132,6 @@ def make_dataset(
     task_type,
     change_val: bool,
     concat = True,
-    y_only = False,
 ):
 
     # classification
@@ -144,9 +142,6 @@ def make_dataset(
 
         for split in ['train', 'test', 'val']:
             X_num_t, X_cat_t, y_t = src.read_pure_data(data_path, split)
-            if y_only:
-                X_num_t = X_num_t[:, :0]
-                X_cat_t = X_cat_t[:, :0]
             if X_num is not None:
                 X_num[split] = X_num_t
             if X_cat is not None:
@@ -163,9 +158,6 @@ def make_dataset(
 
         for split in ['train', 'test']:
             X_num_t, X_cat_t, y_t = src.read_pure_data(data_path, split)
-            if y_only:
-                X_num_t = X_num_t[:, :0]
-                X_cat_t = X_cat_t[:, :0]
             if X_num is not None:
                 if concat:
                     X_num_t = concat_y_to_X(X_num_t, y_t)
@@ -178,8 +170,6 @@ def make_dataset(
     info = src.load_json(os.path.join(data_path, 'info.json'))
     int_col_idx_wrt_num = info['int_col_idx_wrt_num']
 
-    if y_only:
-        int_col_idx_wrt_num = []
     D = src.Dataset(
         X_num,
         X_cat,

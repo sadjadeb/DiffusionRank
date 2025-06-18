@@ -45,7 +45,6 @@ def main(args):
     exp_name = args.exp_name
     if args.exp_name is None:
         exp_name = 'non_learnable_schedule' if args.non_learnable_schedule else 'learnable_schedule'
-    exp_name += '_y_only' if args.y_only else ''
     
     ## Load configs
     curr_dir = os.path.dirname(os.path.abspath(__file__))
@@ -144,7 +143,7 @@ def main(args):
     ## Load training data
     batch_size = raw_config['train']['main']['batch_size']
 
-    train_data = TabDiffDataset(dataname, data_dir, info, y_only=args.y_only, split='train', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
+    train_data = TabDiffDataset(dataname, data_dir, info, split='train', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
     train_loader = DataLoader(
         train_data,
         batch_size = batch_size,
@@ -153,7 +152,7 @@ def main(args):
     )
     d_numerical, categories = train_data.d_numerical, train_data.categories
     
-    val_data = TabDiffDataset(dataname, data_dir, info, y_only=args.y_only, split='val', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
+    val_data = TabDiffDataset(dataname, data_dir, info, split='val', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
     val_loader = DataLoader(
         val_data,
         batch_size = batch_size,
@@ -161,7 +160,7 @@ def main(args):
         num_workers = 4,
     )
     
-    test_data = TabDiffDataset(dataname, data_dir, info, y_only=args.y_only, split='test', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
+    test_data = TabDiffDataset(dataname, data_dir, info, split='test', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
     test_loader = DataLoader(
         test_data,
         batch_size = batch_size,
@@ -193,30 +192,6 @@ def main(args):
     ## Load the module and models
     raw_config['unimodmlp_params']['d_numerical'] = d_numerical
     raw_config['unimodmlp_params']['categories'] = (categories+1).tolist()  # add one for the mask category
-    if args.y_only:
-        raw_config['unimodmlp_params']['use_mlp'] = False     # drop the mlp when training the unconditional model
-        raw_config['unimodmlp_params']['dim_t'] = 128   #reduce the size of the mlp
-        main_model_path = args.ckpt_path
-        if main_model_path is None:
-            main_model_parent_path = f"{curr_dir}/ckpt/{dataname}/{exp_name.replace('_y_only', '')}"
-            main_model_path_arr = glob.glob(f"{main_model_parent_path}/best_model*")
-            assert main_model_path_arr, f"Cannot not infer the main model's ckpt_path from {main_model_parent_path}, please make sure that you first train a main model before training the y_only model!"
-            main_model_path = main_model_path_arr[0]
-        main_model_configs = pickle.load(open(os.path.join(os.path.dirname(main_model_path), 'config.pkl'), 'rb'))
-        if main_model_configs['diffusion_params']['scheduler'] == "power_mean_per_column": # if learnable schedule is enabled in the main model, we need to infer noise params of the target column from the main model ckpt and train the y_only model with those params
-            from tabdiff.models.noise_schedule import PowerMeanNoise_PerColumn, LogLinearNoise_PerColumn
-            if info['task_type'] == 'regression':
-                noise_schedule = PowerMeanNoise_PerColumn(
-                    num_numerical=main_model_configs['unimodmlp_params']['d_numerical'], 
-                    **main_model_configs['diffusion_params']['noise_schedule_params']
-                )
-                raw_config['diffusion_params']['noise_schedule_params']['rho'] = noise_schedule.rho()[0].item()    # the target col is placed at the first position
-            else:
-                noise_schedule = LogLinearNoise_PerColumn(
-                    num_categories=len(main_model_configs['unimodmlp_params']['categories']), 
-                    **main_model_configs['diffusion_params']['noise_schedule_params']
-                )
-                raw_config['diffusion_params']['noise_schedule_params']['k'] = noise_schedule.k()[0].item()    # the target col is placed at the first position
             
     backbone = UniModOnlyMLP(
         **raw_config['unimodmlp_params']
@@ -224,35 +199,16 @@ def main(args):
     model = Model(backbone, **raw_config['diffusion_params']['edm_params'])
     model.to(device)
     
-    ## Create and load y_only_model for imputation
-    y_only_model = None
     if args.impute:
-        y_only_model_path = args.y_only_model_path
-        if y_only_model_path is None:
-            y_only_model_parent_path = f"{curr_dir}/ckpt/{dataname}/{exp_name}_y_only"
-            y_only_model_path_arr = glob.glob(f"{y_only_model_parent_path}/best_model*")
-            assert y_only_model_path_arr, f"Cannot not infer y_only model's ckpt_path from {y_only_model_parent_path}, please make sure that you first train a y_only model before testing imputation!"
-            y_only_model_path = y_only_model_path_arr[0]
-        y_only_model_config_path = os.path.join(os.path.dirname(y_only_model_path), 'config.pkl')
-        with open(y_only_model_config_path, 'rb') as f:
-                y_only_model_config = pickle.load(f)
-        y_only_model = UniModOnlyMLP(
-            **y_only_model_config['unimodmlp_params']
-        )
-        y_only_model = Model(y_only_model, **y_only_model_config['diffusion_params']['edm_params'])
-        y_only_model.to(device)
-        # load weights
-        state_dicts = torch.load(y_only_model_path, map_location=device)
-        y_only_model.load_state_dict(state_dicts['denoise_fn'])
+        raw_config['diffusion_params']['num_timesteps'] = 1
 
-    if not args.y_only and not args.non_learnable_schedule:
+    if not args.non_learnable_schedule:
         raw_config['diffusion_params']['scheduler'] = 'power_mean_per_column'
         raw_config['diffusion_params']['cat_scheduler'] = 'log_linear_per_column'
     diffusion = UnifiedCtimeDiffusion(
         num_classes=categories,
         num_numerical_features=d_numerical,
         denoise_fn=model,
-        y_only_model=y_only_model,
         **raw_config['diffusion_params'],
         device=device,
     )
@@ -294,7 +250,6 @@ def main(args):
         result_save_path=raw_config['result_save_path'],
         device=device,
         ckpt_path=ckpt_path,
-        y_only=args.y_only,
         is_finetune=args.finetune,
     )
     if args.mode == 'test':

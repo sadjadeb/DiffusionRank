@@ -35,11 +35,9 @@ class Trainer:
             d_lambda = 1.0,
             device=torch.device('cuda:1'),
             ckpt_path = None,
-            y_only=False,
             is_finetune=False,
             **kwargs
     ):
-        self.y_only = y_only
         self.diffusion = diffusion
         self.ema_model = deepcopy(self.diffusion._denoise_fn)
         for param in self.ema_model.parameters():
@@ -429,22 +427,13 @@ class Trainer:
         int_inverse = self.dataset.int_inverse
         cat_inverse = self.dataset.cat_inverse
         
-        if self.y_only:
-            if info['task_type'] == 'binclass':
-                syn_data = cat_inverse(syn_data)
-            else:
-                syn_data = num_inverse(syn_data)
-            syn_df = pd.DataFrame()
-            syn_df[info['column_names'][info['target_col_idx'][0]]] = syn_data[:, 0]
-        else:
-            syn_num, syn_cat, syn_target = split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse) 
-            syn_df = recover_data(syn_num, syn_cat, syn_target, info)
-            
+        syn_num, syn_cat, syn_target = split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse) 
+        syn_df = recover_data(syn_num, syn_cat, syn_target, info)
+        
+        idx_name_mapping = info['idx_name_mapping']
+        idx_name_mapping = {int(key): value for key, value in idx_name_mapping.items()}
 
-            idx_name_mapping = info['idx_name_mapping']
-            idx_name_mapping = {int(key): value for key, value in idx_name_mapping.items()}
-
-            syn_df.rename(columns = idx_name_mapping, inplace=True)
+        syn_df.rename(columns = idx_name_mapping, inplace=True)
         
         end_time = time.time()
         print_with_bar(f"Ending Sampling, totoal sampling time = {end_time - start_time}")
