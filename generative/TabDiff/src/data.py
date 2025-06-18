@@ -58,6 +58,8 @@ class IdenticalScaler:
         return X
 
     def inverse_transform(self, X, *args, **kwargs):
+        if isinstance(X, torch.Tensor):
+            return X.cpu().numpy()
         return X
 
 
