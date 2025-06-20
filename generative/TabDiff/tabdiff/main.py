@@ -54,17 +54,21 @@ def main(args):
     print(f"{args.mode.capitalize()} Mode is Enabled")
     num_samples_to_generate = None
     ckpt_path = None
+    
+    if args.k:
+        print(f"Training with {args.k} portion of the training data")
+        
+        exp_name += f"_k{args.k}"
+        data_dir = f'data/{dataname}_k{args.k}'
+        info_path = f'data/{dataname}_k{args.k}/info.json'
+        if not os.path.exists(data_dir):
+            raise ValueError(f"The data directory {data_dir} does not exist, please make sure that you first prepare the data for finetuning!")
+    
+    with open(info_path, 'r') as f:
+        info = json.load(f)
+    
     if args.mode == 'train':
-        print("NEW training is started")
-        if args.k:
-            print(f"Training with {args.k} portion of the training data")
-            
-            exp_name += f"_k{args.k}"
-            data_dir = f'data/{dataname}_k{args.k}'
-            info_path = f'data/{dataname}_k{args.k}/info.json'
-            if not os.path.exists(data_dir):
-                raise ValueError(f"The data directory {data_dir} does not exist, please make sure that you first prepare the data for finetuning!")
-                    
+        print("NEW training is started")                
         if args.finetune:
             print("Finetuning is enabled, will load the finetune_ckpt_path")
             
@@ -90,10 +94,7 @@ def main(args):
                 print(f"Found cached config at {config_path}")
         raw_config = cached_raw_config
     
-    
-    with open(info_path, 'r') as f:
-        info = json.load(f)
-    
+
     ## Creat model_save and result paths
     model_save_path, result_save_path = None, None
     if args.mode == 'train':
