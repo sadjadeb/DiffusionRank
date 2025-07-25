@@ -63,9 +63,8 @@ class MLPDiffusion(nn.Module):
     
 
 class OnlyMLPDiffusion(nn.Module):
-    def __init__(self, d_in, dim_t=512, use_mlp=True):
+    def __init__(self, d_in, dim_t=512, num_layers=4):
         super().__init__()
-        self.use_mlp = use_mlp
 
         total_in_dim = d_in + 1  # add 1 for timestep conditioning
         d_out = d_in - 1  # subtract 1 to prevent predicting the mask token logit
@@ -73,7 +72,7 @@ class OnlyMLPDiffusion(nn.Module):
         layers = []
         last_dim = total_in_dim
         
-        for _ in range(4):
+        for _ in range(num_layers):
             layers.append(nn.Linear(last_dim, dim_t))
             layers.append(nn.ReLU())
             layers.append(nn.LayerNorm(dim_t))
@@ -141,15 +140,15 @@ class UniModOnlyMLP(nn.Module):
         x_cat_pred: [bs, d_categorical] (UNNORMALIZED logits)
     """
     def __init__(
-        self, d_numerical, categories, dim_t=512, use_mlp=True, **kwargs
-    ):
+        self, d_numerical, categories, num_layers, dim_t=512, **kwargs
+        ):
         super().__init__()
         self.d_numerical = d_numerical
         self.categories = categories
         d_categorical = sum(categories)
 
         d_in = d_numerical + d_categorical
-        self.mlp = OnlyMLPDiffusion(d_in=d_in, dim_t=dim_t, use_mlp=use_mlp)
+        self.mlp = OnlyMLPDiffusion(d_in=d_in, dim_t=dim_t, num_layers=num_layers)
 
     def forward(self, x_num, x_cat, timesteps):
         x = torch.cat([x_num, x_cat], dim=-1)  # [bs, d_numerical + sum(categories)]
