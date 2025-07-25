@@ -130,7 +130,6 @@ class Trainer:
         return mloss, gloss
     
     def run_loop(self):
-        patience = 0
         closs_weight, dloss_weight = self.c_lambda, self.d_lambda
         best_loss = np.inf
         best_ema_loss = np.inf
@@ -188,9 +187,6 @@ class Trainer:
             val_mloss, val_gloss = self.compute_loss(self.val_iter, closs_weight=closs_weight, dloss_weight=dloss_weight)
             val_loss = val_mloss * dloss_weight + val_gloss * closs_weight
             
-            if np.isnan(gloss):
-                    print('Finding Nan in gaussian loss')
-                    break
             loss_dict = {
                 "epoch": epoch + 1,
                 "lr": curr_lr,
@@ -278,27 +274,6 @@ class Trainer:
                 }
                 torch.save(state_dicts, os.path.join(self.model_save_path, f'best_ema_model_{np.round(ema_total_loss,4)}_{epoch+1}.pt'))
             
-            # Evaluate Sample Quality
-            if (epoch+1) % self.check_val_every == 0:
-                state_dicts = {
-                    'denoise_fn': self.diffusion._denoise_fn.state_dict(), 
-                    'num_schedule':self.diffusion.num_schedule.state_dict(), 
-                    'cat_schedule': self.diffusion.cat_schedule.state_dict(),
-                }
-                torch.save(state_dicts, os.path.join(self.model_save_path, f'model_{epoch+1}.pt'))
-                
-                print_with_bar(f"Routine Generation Evaluation every {self.check_val_every}, currently at epoch #{epoch+1}, wiht total_loss={total_loss}.")
-                out_metrics, _, _ = self.evaluate_generation(save_metric_details=True, plot_density=True)
-                log_dict.update(out_metrics)
-                print(f"Eval Resutls of the Non-EMA model:\n {out_metrics}")
-
-                # Evaluate the EMA model
-                torch.save(self.ema_model.state_dict(), os.path.join(self.model_save_path, f'ema_model_{epoch+1}.pt'))
-                ema_out_metrics, _, _ = self.evaluate_generation(ema=True, save_metric_details=True, plot_density=True)
-                log_dict.update({
-                    "ema": ema_out_metrics,
-                })
-                print(f"Eval Resutls of the EMA model:\n {ema_out_metrics}")
             
             # Submit logs
             self.logger.log(log_dict)
@@ -306,58 +281,6 @@ class Trainer:
         end_time = time.time()
         print_with_bar(f"Ending Trainnig Loop, totoal training time = {end_time - start_time}")
         self.logger.log({'training_time': end_time - start_time})
-        
-    def report_test(self, num_runs):
-        save_dir = self.result_save_path
-        
-        shape_ = []
-        trend_ = []
-        mle_ = []
-        c2st_ = []
-        for i in range(num_runs):
-            print_with_bar(f"GENERAL Evaluation Run {i}")
-            out_metrics, extras, syn_df = self.evaluate_generation()
-            print(f"Results of Run {i} are: \n{out_metrics}")
-            shape_.append(out_metrics["density/Shape"])
-            trend_.append(out_metrics["density/Trend"])
-            mle_.append(out_metrics["mle"])
-            c2st_.append(out_metrics["c2st"])
-            # Save samples for quality evaluation
-            save_path = os.path.join(save_dir, "all_samples")
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-            syn_df.to_csv(os.path.join(save_path, f"samples_{i}.csv"), index=False)
-
-        shape_ = np.array(shape_)
-        trend_ = np.array(trend_)
-        mle_ = np.array(mle_)
-        c2st_ = np.array(c2st_)
-        
-        shape_error = (1 - shape_)*100
-        trend_error = (1 - trend_)*100
-        c2st_percent = c2st_ * 100
-        
-        all_results = pd.DataFrame({
-            "shape": shape_error,
-            "trend": trend_error,
-            "mle": mle_,
-            "c2st": c2st_percent,
-        })
-        avg = all_results.mean(axis=0).round(3)
-        std = all_results.std(axis=0).round(3)
-        avg_std = pd.concat([avg, std], axis=1, ignore_index=True)
-        avg_std.columns = ["avg", "std"]
-        avg_std.index = [
-            "shape", 
-            "trend", 
-            "mle", 
-            "c2st", 
-        ]
-        
-        # Savings
-        all_results.to_csv(f"{save_dir}/all_results.csv", index=True)
-        avg_std.to_csv(f"{save_dir}/avg_std.csv", index=True)
-        print_with_bar(f"The AVG over {num_runs} runs are: \n{avg_std}")
         
     def test(self):    
         out_metrics, _, _ = self.evaluate_generation(save_metric_details=True, plot_density=True)
@@ -476,45 +399,42 @@ class Trainer:
             avg = x_num_train[:, num_mask_idx].mean(0).to(self.device)
         
         with torch.no_grad():
+            X_test = self.test_dataset.X
+            X_test = deepcopy(X_test).to(self.device)
+            x_num_test, x_cat_test = X_test[:, :d_numerical], X_test[:, d_numerical:].long()
             
-            for trial in range(trail_start, trail_start+trial_size):
-                print_with_bar(f"Imputing trial {trial}")
-                X_test = self.test_dataset.X
-                X_test = deepcopy(X_test).to(self.device)
-                x_num_test, x_cat_test = X_test[:, :d_numerical], X_test[:, d_numerical:].long()
-                
-                # Apply mask to x_0
-                if num_mask_idx:
-                    x_num_test[:, num_mask_idx] = avg
-                if cat_mask_idx:
-                    x_cat_test[:, cat_mask_idx] = torch.tensor(categories, dtype=x_cat_test.dtype, device=x_cat_test.device)[cat_mask_idx]
-                
-                # Sample imputed tables
-                syn_data = self.diffusion.sample_impute(x_num_test, x_cat_test, num_mask_idx, cat_mask_idx, resample_rounds, impute_condition, w_num, w_cat)
-                print(f"Shape of the imputed sample = {syn_data.shape}")
+            # Apply mask to x_0
+            if num_mask_idx:
+                x_num_test[:, num_mask_idx] = avg
+            if cat_mask_idx:
+                x_cat_test[:, cat_mask_idx] = torch.tensor(categories, dtype=x_cat_test.dtype, device=x_cat_test.device)[cat_mask_idx]
+            
+            # Sample imputed tables
+            syn_data = self.diffusion.sample_impute(x_num_test, x_cat_test, num_mask_idx, cat_mask_idx, resample_rounds, impute_condition, w_num, w_cat)
+            print(f"Shape of the imputed sample = {syn_data.shape}")
 
-                # Recover tables
-                num_inverse = self.dataset.num_inverse
-                int_inverse = self.dataset.int_inverse
-                cat_inverse = self.dataset.cat_inverse
+            # Recover tables
+            num_inverse = self.dataset.num_inverse
+            int_inverse = self.dataset.int_inverse
+            cat_inverse = self.dataset.cat_inverse
+            
+            if torch.any((syn_data[:, d_numerical+1:]).max(dim=0).values > (x_cat_train[:,1:]).max(dim=0).values):     # if the test set contains categories not presented in the train set, we can not do cat_inverse. So we implement a patch that set those columns to the same as the train set
+                print("Test set contains extra categories, and so does imputed syn data. We cannot do cat_inverse. So we set the cat columns as the same as the train set")
+                syn_data[:, d_numerical+1:] = x_cat_train[:syn_data.shape[0],1:]
                 
-                if torch.any((syn_data[:, d_numerical+1:]).max(dim=0).values > (x_cat_train[:,1:]).max(dim=0).values):     # if the test set contains categories not presented in the train set, we can not do cat_inverse. So we implement a patch that set those columns to the same as the train set
-                    print("Test set contains extra categories, and so does imputed syn data. We cannot do cat_inverse. So we set the cat columns as the same as the train set")
-                    syn_data[:, d_numerical+1:] = x_cat_train[:syn_data.shape[0],1:]
-                    
-                
-                syn_num, syn_cat, syn_target = split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse) 
-                syn_df = recover_data(syn_num, syn_cat, syn_target, info)
+            
+            syn_num, syn_cat, syn_target = split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse) 
+            syn_df = recover_data(syn_num, syn_cat, syn_target, info)
 
-                idx_name_mapping = info['idx_name_mapping']
-                idx_name_mapping = {int(key): value for key, value in idx_name_mapping.items()}
+            idx_name_mapping = info['idx_name_mapping']
+            idx_name_mapping = {int(key): value for key, value in idx_name_mapping.items()}
 
-                syn_df.rename(columns = idx_name_mapping, inplace=True)
-                
-                # Save imputed samples
-                os.makedirs(imputed_sample_save_dir) if not os.path.exists(imputed_sample_save_dir) else None
-                print(f"Imputed samples are saved to {imputed_sample_save_dir}/{trial}.csv")
-                syn_df.to_csv(f'{imputed_sample_save_dir}/{trial}.csv', index = False)
+            syn_df.rename(columns = idx_name_mapping, inplace=True)
+            
+            # Save imputed samples
+            os.makedirs(imputed_sample_save_dir) if not os.path.exists(imputed_sample_save_dir) else None
+            print(f"Imputed samples are saved to {imputed_sample_save_dir}/0.csv")
+            syn_df.to_csv(f'{imputed_sample_save_dir}/0.csv', index = False)
         
 @torch.no_grad()
 def split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse):

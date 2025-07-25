@@ -254,12 +254,7 @@ def main(args):
         is_finetune=args.finetune,
     )
     if args.mode == 'test':
-        if args.report:
-            if  is_dcr:
-                trainer.report_test_dcr(args.num_runs)
-            else:
-                trainer.report_test(args.num_runs)
-        elif args.impute:
+        if args.impute:
             imputed_sample_save_dir = f"impute/{dataname}/{exp_name}"
             trainer.test_impute(
                 args.trial_start, args.trial_size, 

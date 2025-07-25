@@ -100,17 +100,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             sigma_num = self.num_schedule.total_noise(t)
             sigma_cat = self.cat_schedule.total_noise(t)
             dsigma_cat = self.cat_schedule.rate_noise(t)
-        else:
-            sigma_num = self.sample_ctime_noise(x)       
-            t = self.num_schedule.inverse_to_t(sigma_num)
-            while torch.any((t < 0) + (t > 1)):     
-                # restrict t to [0,1]
-                # this iterative approach is equivalent to sampling from a truncated version of the orignal noise distribution
-                invalid_idx = ((t < 0) + (t > 1)).nonzero().squeeze(-1)
-                sigma_num[invalid_idx] = self.sample_ctime_noise(x[:len(invalid_idx)])
-                t = self.num_schedule.inverse_to_t(sigma_num)
-            assert not torch.any((t < 0) + (t > 1))
-            sigma_cat = self.cat_schedule.total_noise(t)
+            
         # Convert sigma_cat to the corresponding alpha and move_chance
         alpha = torch.exp(-sigma_cat)
         move_chance = -torch.expm1(-sigma_cat)      # torch.expm1 gives better numertical stability
@@ -431,10 +421,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             x_num_hat.float(), x_cat_hat_oh,
             t_hat.squeeze().repeat(b), sigma=sigma_num_hat.unsqueeze(0).repeat(b,1)  # sigma accepts (bs, K_num)
         )
-        
-        # Apply cfg updates, if is in cfg mode
-        is_bin_class = len(self.num_mask_idx) == 0
-        is_learnable = self.scheduler=="power_mean_per_column"
         
         # Euler step
         d_cur = (x_num_hat - denoised) / sigma_num_hat
