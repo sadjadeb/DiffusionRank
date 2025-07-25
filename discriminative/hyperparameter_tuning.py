@@ -37,7 +37,7 @@ param_grid = {
     'dropout_rate': [0.0, 0.1, 0.2, 0.3]
 }
 
-output_file = os.path.join("output", f"hyperparameter_tuning_{dataset}_{approach}_results.txt")
+output_file = os.path.join("experiments", f"hyperparameter_tuning_{dataset}_{approach}_results.txt")
 
 
 def write_to_file(message, file_path=output_file, mode='a'):
