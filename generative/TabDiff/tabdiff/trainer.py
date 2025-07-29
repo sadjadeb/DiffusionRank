@@ -413,30 +413,23 @@ class Trainer:
             # Sample imputed tables
             syn_data = self.diffusion.sample_impute(x_num_test, x_cat_test, num_mask_idx, cat_mask_idx, impute_condition)
             print(f"Shape of the imputed sample = {syn_data.shape}")
-
-            # Recover tables
-            num_inverse = self.dataset.num_inverse
-            int_inverse = self.dataset.int_inverse
-            cat_inverse = self.dataset.cat_inverse
             
-            if torch.any((syn_data[:, d_numerical+1:]).max(dim=0).values > (x_cat_train[:,1:]).max(dim=0).values):     # if the test set contains categories not presented in the train set, we can not do cat_inverse. So we implement a patch that set those columns to the same as the train set
-                print("Test set contains extra categories, and so does imputed syn data. We cannot do cat_inverse. So we set the cat columns as the same as the train set")
-                syn_data[:, d_numerical+1:] = x_cat_train[:syn_data.shape[0],1:]
-                
+            y_pred_test = syn_data[:, info['target_col_idx'][0]]
             
-            syn_num, syn_cat, syn_target = split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse) 
-            syn_df = recover_data(syn_num, syn_cat, syn_target, info)
-
-            idx_name_mapping = info['idx_name_mapping']
-            idx_name_mapping = {int(key): value for key, value in idx_name_mapping.items()}
-
-            syn_df.rename(columns = idx_name_mapping, inplace=True)
+            raw_test_data = pd.read_csv(os.path.join(self.raw_data_dir, 'test.csv'))
+            idx_test = raw_test_data[str(info['target_col_idx'][0] + 1)].values
+            y_true_test = raw_test_data[str(info['target_col_idx'][0])].values
             
-            # Save imputed samples
-            os.makedirs(imputed_sample_save_dir) if not os.path.exists(imputed_sample_save_dir) else None
-            print(f"Imputed samples are saved to {imputed_sample_save_dir}/0.csv")
-            syn_df.to_csv(f'{imputed_sample_save_dir}/0.csv', index = False)
-        
+            # Save results
+            os.makedirs(imputed_sample_save_dir, exist_ok=True)
+            results_save_path = os.path.join(imputed_sample_save_dir, 'impute_output.txt')
+            with open(results_save_path, 'w') as f:
+                f.write('qid true_label pred_label\n')
+                for qid, true_label, pred_label in zip(idx_test, y_true_test, y_pred_test):
+                    f.write(f'{qid} {true_label} {pred_label}\n')
+            print(f"Results saved to {results_save_path}")
+
+
 @torch.no_grad()
 def split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse):
     task_type = info['task_type']
