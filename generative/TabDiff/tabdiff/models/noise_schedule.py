@@ -20,6 +20,26 @@ class Noise(abc.ABC, nn.Module):
     pass
   
 
+class LinearNoise(Noise):
+  """Linear noise schedule.
+  
+  This is the schedule used in DDPM
+  """
+  def __init__(self, sigma_min=0.002, sigma_max=80, **kwargs):
+    super().__init__()
+    self.sigma_min = sigma_min
+    self.sigma_max = sigma_max
+    
+  def k(self):
+    return torch.tensor(1)
+
+  def rate_noise(self, t):
+    return (self.sigma_max - self.sigma_min) * torch.ones_like(t)
+
+  def total_noise(self, t):
+    return self.sigma_min + t * (self.sigma_max - self.sigma_min)
+
+
 class LogLinearNoise(Noise):
   """Log Linear noise schedule.
     

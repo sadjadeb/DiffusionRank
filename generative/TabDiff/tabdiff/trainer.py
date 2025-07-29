@@ -231,11 +231,6 @@ class Trainer:
             else:
                 raise NotImplementedError(f"LR scheduler with name '{self.lr_scheduler}' is not implemented")
             
-            # Update EMA models
-            update_ema(self.ema_model.parameters(), self.diffusion._denoise_fn.parameters(), rate=self.ema_decay)
-            update_ema(self.ema_num_schedule.parameters(), self.diffusion.num_schedule.parameters(), rate=self.ema_decay)
-            update_ema(self.ema_cat_schedule.parameters(), self.diffusion.cat_schedule.parameters(), rate=self.ema_decay)
-
             # Save ckpt base on the best training loss
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
