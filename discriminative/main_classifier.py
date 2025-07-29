@@ -8,6 +8,8 @@ from utils import set_all_seeds, calculate_metrics
 from model import DNN
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import QuantileTransformer
+from copy import deepcopy
+import argparse
 
 
 seed = 42
@@ -116,7 +118,7 @@ def train(net):
     return train_loss / e_size
 
 
-def evaluate(net, data_iter):
+def test(net, data_iter):
     net.eval()
     with torch.no_grad():
         results = {}
@@ -153,7 +155,7 @@ if __name__ == '__main__':
     print('Dataset: {}'.format(dataset))
     print('Number of learnable parameters: {}'.format(net.parameter_count()))
     
-    avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
+    avgp, avgndcg, val_loss, val_acc, _ = test(net, val_reader_iter)
     print(f'epoch: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
     wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
     
@@ -162,14 +164,14 @@ if __name__ == '__main__':
     for epoch in range(num_epochs):
         train_loss = train(net)
         
-        avgp, avgndcg, val_loss, val_acc, _ = evaluate(net, val_reader_iter)
+        avgp, avgndcg, val_loss, val_acc, _ = test(net, val_reader_iter)
         print(f'epoch:{epoch+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
         wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
         
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            best_model_state = net.state_dict().copy()
+            best_model_state = deepcopy(net.state_dict())
 
 
     final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.final.pt')
@@ -185,7 +187,7 @@ if __name__ == '__main__':
     print('Best model saved to {}'.format(best_model_save_path))
     
     print('Evaluating on test set...')
-    avgp, avgndcg, test_loss, test_acc, test_results = evaluate(net, test_reader_iter)
+    avgp, avgndcg, test_loss, test_acc, test_results = test(net, test_reader_iter)
     print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
