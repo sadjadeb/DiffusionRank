@@ -257,12 +257,8 @@ def main(args):
         if args.impute:
             imputed_sample_save_dir = f"impute/{dataname}/{exp_name}"
             trainer.test_impute(
-                args.trial_start, args.trial_size, 
-                args.resample_rounds, 
                 args.impute_condition, 
                 imputed_sample_save_dir,
-                args.w_num,
-                args.w_cat,
             )
         else:
             trainer.test()

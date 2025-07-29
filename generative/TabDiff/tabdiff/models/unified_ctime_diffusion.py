@@ -66,8 +66,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         self.noise_dist_params = noise_dist_params
         self.sampler_params = sampler_params
         
-        self.w_num = 0.0
-        self.w_cat = 0.0
         self.num_mask_idx = []
         self.cat_mask_idx = []
         
@@ -103,7 +101,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             
         # Convert sigma_cat to the corresponding alpha and move_chance
         alpha = torch.exp(-sigma_cat)
-        move_chance = -torch.expm1(-sigma_cat)      # torch.expm1 gives better numertical stability
+        move_chance = 1 - alpha
             
         # Continuous forward diff
         x_num_t = x_num
@@ -116,7 +114,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         x_cat_t_soft = x_cat # in the case where x_cat is empty, x_cat_t_soft will have the same shape as x_cat
         if x_cat.shape[1] > 0:
             is_learnable = self.cat_scheduler == 'log_linear_per_column'
-            strategy = 'soft'if is_learnable else 'hard'
+            strategy = 'soft' if is_learnable else 'hard'
             x_cat_t, x_cat_t_soft = self.q_xt(x_cat, move_chance, strategy=strategy)
 
         # Predict orignal data (distribution)
@@ -451,9 +449,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         return x_num_next, x_cat_next, q_xs
 
 
-    def sample_impute(self, x_num, x_cat, num_mask_idx, cat_mask_idx, resample_rounds, impute_condition, w_num, w_cat):
-        self.w_num = w_num
-        self.w_cat = w_cat
+    def sample_impute(self, x_num, x_cat, num_mask_idx, cat_mask_idx, impute_condition):
         self.num_mask_idx = num_mask_idx
         self.cat_mask_idx = cat_mask_idx
         
@@ -511,8 +507,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             elif impute_condition == "x_0":
                 z_cat = x_cat
         
-        pbar = tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps, desc="Sampling Progress")
-        for i in pbar:
+        for i in tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps, desc="Sampling Progress"):
             # Get known parts by Forward Flow
             if impute_condition == "x_t":
                 z_norm_known = x_num + torch.randn((b, self.num_numerical_features), device=device) * sigma_num_next[i]

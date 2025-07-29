@@ -36,6 +36,7 @@ class Trainer:
             device=torch.device('cuda:1'),
             ckpt_path = None,
             is_finetune=False,
+            raw_data_dir=None,
             **kwargs
     ):
         self.diffusion = diffusion
@@ -71,6 +72,7 @@ class Trainer:
         self.check_val_every = check_val_every
         
         self.device = device
+        self.raw_data_dir = raw_data_dir
         self.model_save_path = model_save_path
         self.result_save_path = result_save_path
         self.ckpt_path = ckpt_path
@@ -381,7 +383,7 @@ class Trainer:
         self.diffusion.num_schedule = curr_num_schedule
         self.diffusion.cat_schedule = curr_cat_schedule
         
-    def test_impute(self, trail_start, trial_size, resample_rounds, impute_condition, imputed_sample_save_dir, w_num, w_cat):
+    def test_impute(self, impute_condition, imputed_sample_save_dir):
         self.diffusion.eval()
         
         info = self.metrics.info
@@ -389,7 +391,6 @@ class Trainer:
         d_numerical, categories = self.dataset.d_numerical, self.dataset.categories
         num_mask_idx, cat_mask_idx = [], []
         X_train = self.dataset.X
-        X_train = X_train
         x_num_train, x_cat_train = X_train[:,:d_numerical], X_train[:,d_numerical:]
         
         if task_type == 'binclass':    # for cat cols, push the masked col to [MASK]
@@ -400,7 +401,7 @@ class Trainer:
         
         with torch.no_grad():
             X_test = self.test_dataset.X
-            X_test = deepcopy(X_test).to(self.device)
+            X_test = X_test.to(self.device)
             x_num_test, x_cat_test = X_test[:, :d_numerical], X_test[:, d_numerical:].long()
             
             # Apply mask to x_0
@@ -410,7 +411,7 @@ class Trainer:
                 x_cat_test[:, cat_mask_idx] = torch.tensor(categories, dtype=x_cat_test.dtype, device=x_cat_test.device)[cat_mask_idx]
             
             # Sample imputed tables
-            syn_data = self.diffusion.sample_impute(x_num_test, x_cat_test, num_mask_idx, cat_mask_idx, resample_rounds, impute_condition, w_num, w_cat)
+            syn_data = self.diffusion.sample_impute(x_num_test, x_cat_test, num_mask_idx, cat_mask_idx, impute_condition)
             print(f"Shape of the imputed sample = {syn_data.shape}")
 
             # Recover tables
@@ -471,34 +472,21 @@ def split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse):
     return syn_num, syn_cat, syn_target
 
 def recover_data(syn_num, syn_cat, syn_target, info):
-
     num_col_idx = info['num_col_idx']
     cat_col_idx = info['cat_col_idx']
     target_col_idx = info['target_col_idx']
-
 
     idx_mapping = info['idx_mapping']
     idx_mapping = {int(key): value for key, value in idx_mapping.items()}
 
     syn_df = pd.DataFrame()
 
-    if info['task_type'] == 'regression':
-        for i in range(len(num_col_idx) + len(cat_col_idx) + len(target_col_idx)):
-            if i in set(num_col_idx):
-                syn_df[i] = syn_num[:, idx_mapping[i]] 
-            elif i in set(cat_col_idx):
-                syn_df[i] = syn_cat[:, idx_mapping[i] - len(num_col_idx)]
-            else:
-                syn_df[i] = syn_target[:, idx_mapping[i] - len(num_col_idx) - len(cat_col_idx)]
-
-
-    else:
-        for i in range(len(num_col_idx) + len(cat_col_idx) + len(target_col_idx)):
-            if i in set(num_col_idx):
-                syn_df[i] = syn_num[:, idx_mapping[i]]
-            elif i in set(cat_col_idx):
-                syn_df[i] = syn_cat[:, idx_mapping[i] - len(num_col_idx)]
-            else:
-                syn_df[i] = syn_target[:, idx_mapping[i] - len(num_col_idx) - len(cat_col_idx)]
+    for i in range(len(num_col_idx) + len(cat_col_idx) + len(target_col_idx)):
+        if i in set(num_col_idx):
+            syn_df[i] = syn_num[:, idx_mapping[i]]
+        elif i in set(cat_col_idx):
+            syn_df[i] = syn_cat[:, idx_mapping[i] - len(num_col_idx)]
+        else:
+            syn_df[i] = syn_target[:, idx_mapping[i] - len(num_col_idx) - len(cat_col_idx)]
 
     return syn_df

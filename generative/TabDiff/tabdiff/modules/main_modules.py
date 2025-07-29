@@ -172,16 +172,15 @@ class Precond(nn.Module):
         self.denoise_fn_F = denoise_fn
 
     def forward(self, x_num, x_cat, t, sigma):
-
-        x_num = x_num.to(torch.float32)
-
-        sigma = sigma.to(torch.float32)
+        dtype = torch.float32
+        x_num = x_num.to(dtype)
+        sigma = sigma.to(dtype)
+        
         assert sigma.ndim == 2
         if sigma.dim() > 1: # if learnable column-wise noise schedule, sigma conditioning is set to the defaults schedule of rho=7
             sigma_cond = (0.002 ** (1/7) + t * (80 ** (1/7) - 0.002 ** (1/7))).pow(7)
         else:
             sigma_cond = sigma 
-        dtype = torch.float32
 
         c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
         c_out = sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2).sqrt()
@@ -195,7 +194,7 @@ class Precond(nn.Module):
             F_x, x_cat_pred = self.denoise_fn_F(x_in, x_cat, t)
 
         assert F_x.dtype == dtype
-        D_x = c_skip * x_num + c_out * F_x.to(torch.float32)
+        D_x = c_skip * x_num + c_out * F_x.to(dtype)
         
         return D_x, x_cat_pred
     
