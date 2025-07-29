@@ -13,8 +13,17 @@ from sklearn.preprocessing import QuantileTransformer
 seed = 42
 set_all_seeds(seed)
 
-dataset = 'MQ2007' # ['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K']
-k = 1.0
+# get k from command line arguments
+parser = argparse.ArgumentParser(description='Run LTR Classifier Experiment')
+parser.add_argument('--dataset', type=str, default='MQ2007', choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment')
+parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
+parser.add_argument('--no_wandb', action='store_true', help='Disable Weights & Biases logging')
+parser.add_argument('--checkpoint', type=str, default=None, help='Path to the model checkpoint to load')
+args = parser.parse_args()
+
+dataset = args.dataset
+k = args.k
+print(f'Running experiment for dataset: {dataset}, k: {k}')
 
 # Set hyperparameters
 device = torch.device("cuda:0")
@@ -83,6 +92,11 @@ test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_siz
 net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach='classifier', dropout_rate=dropout_rate).to(device)
 optimizer = optim.Adam(net.parameters(), lr=learning_rate)
 criterion = nn.CrossEntropyLoss()
+
+if args.checkpoint:
+    print(f"Loading model from checkpoint: {args.checkpoint}")
+    checkpoint = torch.load(args.checkpoint, map_location=device)
+    net.load_state_dict(checkpoint)
 
 
 def train(net):
