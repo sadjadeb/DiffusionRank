@@ -21,6 +21,7 @@ parser.add_argument('--dataset', type=str, default='MQ2007', choices=['MQ2007', 
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
 parser.add_argument('--no_wandb', action='store_true', help='Disable Weights & Biases logging')
 parser.add_argument('--checkpoint', type=str, default=None, help='Path to the model checkpoint to load')
+parser.add_argument('--save_best_by', type=str, default='loss', choices=['ndcg', 'loss'], help='Criterion to save the best model by')
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -160,6 +161,7 @@ if __name__ == '__main__':
     wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
     
     best_val_loss = float('inf')
+    best_ndcg = float('-inf')
     best_model_state = None
     for epoch in range(num_epochs):
         train_loss = train(net)
@@ -169,13 +171,19 @@ if __name__ == '__main__':
         wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
         
         # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_model_state = deepcopy(net.state_dict())
+        if args.save_best_by == 'loss':
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_model_state = deepcopy(net.state_dict())
+        elif args.save_best_by == 'ndcg':
+            if avgndcg > best_ndcg:
+                best_ndcg = avgndcg
+                best_model_state = deepcopy(net.state_dict())
+        else:
+            raise ValueError(f"Unknown save_best_by criterion: {args.save_best_by}")
 
-
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.best.pt')
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.best.pt')
         
     # Save model
     torch.save(net.state_dict(), final_model_save_path)
@@ -191,7 +199,7 @@ if __name__ == '__main__':
     print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.qunatile.best.results.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.best.results.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_results.items():
