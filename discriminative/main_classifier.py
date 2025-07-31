@@ -38,7 +38,9 @@ learning_rate = 5e-6
 num_hidden_nodes = 256 if 'MSLR' in dataset else 128
 batch_size = 4096
 
-wandb.init(project=f"ltr_npy_{dataset}_classifier", name=f"exp_2dim")
+wandb.init(project=f"ltr_npy_{dataset}_classifier", 
+           name=f"exp_k{k}", 
+           mode='disabled' if args.no_wandb else 'online')
 wandb.config.update({
     'features_count': features_count,
     'data_normalization': data_normalization,
