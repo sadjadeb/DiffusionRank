@@ -17,7 +17,8 @@ set_all_seeds(seed)
 
 # get k from command line arguments
 parser = argparse.ArgumentParser(description='Run LTR Classifier Experiment')
-parser.add_argument('--dataset', type=str, default='MQ2007', choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment')
+parser.add_argument('--dataset', type=str, choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment')
+parser.add_argument('--task', type=str, choices=['train', 'test'], help='Task to run: train or test') 
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
 parser.add_argument('--no_wandb', action='store_true', help='Disable Weights & Biases logging')
 parser.add_argument('--checkpoint', type=str, default=None, help='Path to the model checkpoint to load')
@@ -27,6 +28,11 @@ args = parser.parse_args()
 dataset = args.dataset
 k = args.k
 print(f'Running experiment for dataset: {dataset}, k: {k}')
+
+if args.task == 'test' and args.checkpoint is None:
+    raise ValueError("Checkpoint must be provided for testing.")
+if args.task == 'test':
+    args.no_wandb = True
 
 # Set hyperparameters
 device = torch.device("cuda:0")
@@ -157,54 +163,55 @@ def test(net, data_iter):
 
 
 if __name__ == '__main__':
-    print('Approach: Classifier')
     print('Dataset: {}'.format(dataset))
     print('Number of learnable parameters: {}'.format(net.parameter_count()))
     
-    avgp, avgndcg, val_loss, val_acc, _ = test(net, val_reader_iter)
-    print(f'epoch: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
-    wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
-    
-    best_val_loss = float('inf')
-    best_ndcg = float('-inf')
-    best_model_state = None
-    for epoch in range(num_epochs):
-        train_loss = train(net)
-        
+    if args.task == 'train':
+        print('Training the model...')
         avgp, avgndcg, val_loss, val_acc, _ = test(net, val_reader_iter)
-        print(f'epoch:{epoch+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
-        wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
+        print(f'epoch: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
+        wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
         
-        # Save best model
-        if args.save_best_by == 'loss':
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                best_model_state = deepcopy(net.state_dict())
-        elif args.save_best_by == 'ndcg':
-            if avgndcg > best_ndcg:
-                best_ndcg = avgndcg
-                best_model_state = deepcopy(net.state_dict())
-        else:
-            raise ValueError(f"Unknown save_best_by criterion: {args.save_best_by}")
+        best_val_loss = float('inf')
+        best_ndcg = float('-inf')
+        best_model_state = None
+        for epoch in range(num_epochs):
+            train_loss = train(net)
+            
+            avgp, avgndcg, val_loss, val_acc, _ = test(net, val_reader_iter)
+            print(f'epoch:{epoch+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
+            wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
+            
+            # Save best model
+            if args.save_best_by == 'loss':
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    best_model_state = deepcopy(net.state_dict())
+            elif args.save_best_by == 'ndcg':
+                if avgndcg > best_ndcg:
+                    best_ndcg = avgndcg
+                    best_model_state = deepcopy(net.state_dict())
+            else:
+                raise ValueError(f"Unknown save_best_by criterion: {args.save_best_by}")
 
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.2dim.quantile.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.2dim.quantile.best.pt')
-        
-    # Save model
-    torch.save(net.state_dict(), final_model_save_path)
-    print('Final model saved to {}'.format(final_model_save_path))
+        final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.final.pt')
+        best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.best.pt')
+            
+        # Save model
+        torch.save(net.state_dict(), final_model_save_path)
+        print('Final model saved to {}'.format(final_model_save_path))
 
-    # Load best model before saving
-    net.load_state_dict(best_model_state)
-    torch.save(net.state_dict(), best_model_save_path)
-    print('Best model saved to {}'.format(best_model_save_path))
+        # Load best model before saving
+        net.load_state_dict(best_model_state)
+        torch.save(net.state_dict(), best_model_save_path)
+        print('Best model saved to {}'.format(best_model_save_path))
     
     print('Evaluating on test set...')
     avgp, avgndcg, test_loss, test_acc, test_results = test(net, test_reader_iter)
     print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.classifier.2dim.quantile.best.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.classifier.best.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_results.items():
