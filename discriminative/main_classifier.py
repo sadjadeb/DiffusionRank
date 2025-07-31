@@ -129,13 +129,16 @@ def test(net, data_iter):
         val_acc = 0.0
         val_size = 0
         for features, labels, qids in data_iter:
-            out = net(features).data.cpu()
+            raw_logits = net(features).data.cpu()
             
-            loss = criterion(out, labels)
+            # Take log softmax on the unnormalized probabilities to the logits
+            logits = raw_logits - torch.logsumexp(raw_logits, dim=1, keepdim=True)
+
+            loss = criterion(logits, labels)
             val_loss += loss.item()
             val_size += 1
-            
-            _, preds = torch.max(out, 1)
+
+            _, preds = torch.max(logits, 1)
             acc = accuracy_score(labels.numpy(), preds.numpy())
             val_acc += acc
             
@@ -144,7 +147,7 @@ def test(net, data_iter):
                 qid = qids[i].item()
                 if qid not in results:
                     results[qid] = []
-                results[qid].append((labels[i], out[i][1]))
+                results[qid].append((labels[i], logits[i][1]))
         val_loss /= val_size
         val_acc /= val_size
 
