@@ -182,8 +182,8 @@ if __name__ == '__main__':
         else:
             raise ValueError(f"Unknown save_best_by criterion: {args.save_best_by}")
 
-    final_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.final.pt')
-    best_model_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.best.pt')
+    final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.2dim.quantile.final.pt')
+    best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.2dim.quantile.best.pt')
         
     # Save model
     torch.save(net.state_dict(), final_model_save_path)
@@ -199,7 +199,7 @@ if __name__ == '__main__':
     print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'experiments', f'ltr.{dataset}.classifier.2dim.quantile.best.results.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.classifier.2dim.quantile.best.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_results.items():

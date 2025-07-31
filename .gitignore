@@ -5,6 +5,8 @@
 **/data
 **/output
 **/experiments
+**/checkpoints
+**/predictions
 **/**/experiments
 **/**/*.pt
 **/**/*.pth
