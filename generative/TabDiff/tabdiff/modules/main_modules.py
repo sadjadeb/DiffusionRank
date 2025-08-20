@@ -74,7 +74,7 @@ class OnlyMLPDiffusion(nn.Module):
         
         for _ in range(num_layers):
             layers.append(nn.Linear(last_dim, dim_t))
-            layers.append(nn.ReLU())
+            layers.append(nn.SiLU())
             layers.append(nn.LayerNorm(dim_t))
             layers.append(nn.Dropout(p=0.1))
             last_dim = dim_t

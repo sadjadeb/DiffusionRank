@@ -12,19 +12,19 @@ class DNN(torch.nn.Module):
         
         for _ in range(num_hidden_layers):
             layers.append(nn.Linear(last_hidden_dim, num_hidden_nodes))
-            layers.append(nn.ReLU())
+            layers.append(nn.SiLU())
             layers.append(nn.LayerNorm(num_hidden_nodes))
             layers.append(nn.Dropout(p=dropout_rate))
             last_hidden_dim = num_hidden_nodes
         layers.append(nn.Linear(last_hidden_dim, last_dim))
         
         if approach == 'pointwise':
-            layers.append(nn.ReLU())
+            layers.append(nn.SiLU())
         
-        self.model = nn.Sequential(*layers)
+        self.mlp = nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.model(x)
+        return self.mlp(x)
     
     def parameter_count(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
