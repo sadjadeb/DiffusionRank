@@ -3,7 +3,6 @@ import pandas as pd
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.metrics import f1_score, roc_auc_score, accuracy_score, precision_score, recall_score, confusion_matrix
 from sklearn.metrics import root_mean_squared_error
-from utils import calculate_metrics
 import argparse
 import json
 
@@ -61,17 +60,6 @@ if task_type == "binclass":
     y_pred = syn_y_prob.argmax(axis=1)
     y_pred_probs = syn_y_prob[:, 1]
     
-    
-    if info['name'] == 'MQ2007':
-        results = {}
-        for idx, label_t, label_p in zip(real_data['47'], y_true, y_pred_probs):
-            if idx not in results:
-                results[idx] = []
-            results[idx].append((label_t, label_p))
-        
-        avgndcg, avgp = calculate_metrics(results)
-        print(f"Avg NDCG: {avgndcg:.6f} - Avg Precision: {avgp:.6f}")
-
     unique, counts = np.unique(y_pred, return_counts=True)
     print("Predicted labels and their counts:")
     for value, count in zip(unique, counts):
