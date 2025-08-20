@@ -19,7 +19,7 @@ with open(args.run_file) as f:
             results[qid] = []
         results[qid].append((float(true_label), float(pred_label)))
 
-        if true_label == '2':
+        if int(true_label) > 1:
             true_label = '1'
 
         true_labels.append((1 - float(true_label), float(true_label)))
