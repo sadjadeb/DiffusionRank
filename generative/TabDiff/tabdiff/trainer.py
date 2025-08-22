@@ -115,7 +115,7 @@ class Trainer:
 
         return dloss, closs
     
-    def compute_loss(self, data_iter, closs_weight=1, dloss_weight=1):
+    def compute_loss(self, data_iter):
         curr_dloss = 0.0
         curr_closs = 0.0
         curr_count = 0
@@ -124,8 +124,8 @@ class Trainer:
             self.diffusion.eval()
             with torch.no_grad():
                 batch_dloss, batch_closs = self.diffusion.mixed_loss(x)
-            curr_dloss += batch_dloss.item() * len(x) * dloss_weight
-            curr_closs += batch_closs.item() * len(x) * closs_weight
+            curr_dloss += batch_dloss.item() * len(x)
+            curr_closs += batch_closs.item() * len(x)
             curr_count += len(x)
         mloss = np.around(curr_dloss / curr_count, 4)
         gloss = np.around(curr_closs / curr_count, 4)
