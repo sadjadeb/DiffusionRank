@@ -14,6 +14,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_wandb', action='store_true', help='disable wandb')
     parser.add_argument('--exp_name', type=str, default=None, help='Experiment name, used to name log directories and the wandb run name')
     parser.add_argument('--deterministic', action='store_true', help='Whether to make the entire process deterministic, i.e., fix global random seeds')
+    parser.add_argument('--batch_size', type=int, default=4096, help='Batch size for training and evaluation')
     
     # Configs for tabdiff
     parser.add_argument('--non_learnable_schedule', action='store_true', help='disable learnable noise schedule')

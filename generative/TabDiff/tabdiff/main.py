@@ -142,6 +142,7 @@ def main(args):
         raw_config['sample']['batch_size'] = 10000
 
     ## Load training data
+    raw_config['train']['main']['batch_size'] = args.batch_size
     batch_size = raw_config['train']['main']['batch_size']
 
     train_data = TabDiffDataset(dataname, data_dir, info, split='train', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
