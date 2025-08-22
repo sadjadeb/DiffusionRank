@@ -6,7 +6,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import numpy as np
 import pandas as pd
 import json
-
+from utils import calculate_metrics
 from copy import deepcopy
 
 from utils_train import update_ema
@@ -136,6 +136,7 @@ class Trainer:
         best_loss = np.inf
         best_ema_loss = np.inf
         best_val_loss = np.inf
+        best_val_ndcg = -np.inf
         start_time = time.time()
         print_with_bar(f"Starting Trainin Loop, total number of epoch = {self.steps}")
         # Set up wandb's step metric
@@ -185,9 +186,31 @@ class Trainer:
             mloss = np.around(curr_dloss / curr_count, 4)
             gloss = np.around(curr_closs / curr_count, 4)
             total_loss = mloss * dloss_weight + gloss * closs_weight
+
+            val_mloss, val_gloss = self.compute_loss(self.val_iter)
+            val_loss = val_mloss + val_gloss
+
+            # Evaluate on validation set to compute NDCG and P
+            self.diffusion.num_timesteps = 1
+            num_mask_idx, cat_mask_idx = [], [0]
+            x_num_val, x_cat_val = self.val_dataset[:, :self.dataset.d_numerical].to(self.device), self.val_dataset[:, self.dataset.d_numerical:].long().to(self.device)
+            x_cat_val[:, cat_mask_idx] = torch.tensor(self.dataset.categories, dtype=x_cat_val.dtype, device=x_cat_val.device)[cat_mask_idx]
+            syn_data = self.diffusion.sample_impute(x_num_val, x_cat_val, num_mask_idx, cat_mask_idx, 'x_0')
             
-            val_mloss, val_gloss = self.compute_loss(self.val_iter, closs_weight=closs_weight, dloss_weight=dloss_weight)
-            val_loss = val_mloss * dloss_weight + val_gloss * closs_weight
+            info = self.metrics.info
+            y_pred_val = syn_data[:, info['target_col_idx'][0]].detach().numpy()
+            raw_val_data = pd.read_csv(os.path.join(self.raw_data_dir, 'val.csv'))
+            idx_val = raw_val_data[str(info['target_col_idx'][0] + 1)].values
+            y_true_val = raw_val_data[str(info['target_col_idx'][0])].values
+            
+            val_results = {}
+            for qid, true_label, pred_label in zip(idx_val, y_true_val, y_pred_val):
+                if qid not in val_results:
+                    val_results[qid] = []
+                val_results[qid].append((true_label, pred_label))
+            
+            val_ndcg, val_p = calculate_metrics(val_results)
+            self.diffusion.num_timesteps = 50
             
             loss_dict = {
                 "epoch": epoch + 1,
@@ -200,6 +223,8 @@ class Trainer:
                 "loss/val_c_loss": val_gloss,
                 "loss/val_d_loss": val_mloss,
                 "loss/val_total_loss": val_loss,
+                "loss/ndcg": val_ndcg,
+                "loss/p": val_p,
             }
             log_dict.update(loss_dict)
             
