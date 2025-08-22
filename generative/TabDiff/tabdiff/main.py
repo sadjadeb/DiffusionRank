@@ -253,6 +253,7 @@ def main(args):
         device=device,
         ckpt_path=ckpt_path,
         is_finetune=args.finetune,
+        raw_data_dir=data_dir
     )
     if args.mode == 'test':
         if args.impute:

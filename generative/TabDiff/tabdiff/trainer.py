@@ -53,6 +53,8 @@ class Trainer:
         self.train_iter = train_iter
         self.dataset = train_dataset
         self.val_iter = val_iter
+        self.val_dataset = val_dataset
+        self.test_iter = test_iter
         self.test_dataset = test_dataset
         self.steps = steps
         self.init_lr = lr
@@ -130,7 +132,33 @@ class Trainer:
         mloss = np.around(curr_dloss / curr_count, 4)
         gloss = np.around(curr_closs / curr_count, 4)
         return mloss, gloss
-    
+
+    def compute_ranking_metrics_by_imputation(self, data_dataset, split):
+        # Evaluate on validation and test set to compute NDCG and P
+        self.diffusion.num_timesteps = 1
+        
+        num_mask_idx, cat_mask_idx = [], [0]
+        x_num, x_cat = data_dataset[:, :self.dataset.d_numerical].to(self.device), data_dataset[:, self.dataset.d_numerical:].long().to(self.device)
+        x_cat[:, cat_mask_idx] = torch.tensor(self.dataset.categories, dtype=x_cat.dtype, device=x_cat.device)[cat_mask_idx]
+        syn_data = self.diffusion.sample_impute(x_num, x_cat, num_mask_idx, cat_mask_idx, 'x_0')
+        
+        info = self.metrics.info
+        y_pred = syn_data[:, info['target_col_idx'][0]].detach().numpy()
+        raw_data = pd.read_csv(os.path.join(self.raw_data_dir, f'{split}.csv'))
+        idx = raw_data[str(info['target_col_idx'][0] + 1)].values
+        y_true = raw_data[str(info['target_col_idx'][0])].values
+        
+        results = {}
+        for qid, true_label, pred_label in zip(idx, y_true, y_pred):
+            if qid not in results:
+                results[qid] = []
+            results[qid].append((true_label, pred_label))
+        
+        self.diffusion.num_timesteps = 50
+        
+        avg_ndcg, avg_p = calculate_metrics(results)
+        return avg_ndcg, avg_p
+
     def run_loop(self):
         closs_weight, dloss_weight = self.c_lambda, self.d_lambda
         best_loss = np.inf
@@ -190,28 +218,12 @@ class Trainer:
             val_mloss, val_gloss = self.compute_loss(self.val_iter)
             val_loss = val_mloss + val_gloss
 
-            # Evaluate on validation set to compute NDCG and P
-            self.diffusion.num_timesteps = 1
-            num_mask_idx, cat_mask_idx = [], [0]
-            x_num_val, x_cat_val = self.val_dataset[:, :self.dataset.d_numerical].to(self.device), self.val_dataset[:, self.dataset.d_numerical:].long().to(self.device)
-            x_cat_val[:, cat_mask_idx] = torch.tensor(self.dataset.categories, dtype=x_cat_val.dtype, device=x_cat_val.device)[cat_mask_idx]
-            syn_data = self.diffusion.sample_impute(x_num_val, x_cat_val, num_mask_idx, cat_mask_idx, 'x_0')
+            test_mloss, test_gloss = self.compute_loss(self.test_iter)
+            test_loss = test_mloss + test_gloss
             
-            info = self.metrics.info
-            y_pred_val = syn_data[:, info['target_col_idx'][0]].detach().numpy()
-            raw_val_data = pd.read_csv(os.path.join(self.raw_data_dir, 'val.csv'))
-            idx_val = raw_val_data[str(info['target_col_idx'][0] + 1)].values
-            y_true_val = raw_val_data[str(info['target_col_idx'][0])].values
-            
-            val_results = {}
-            for qid, true_label, pred_label in zip(idx_val, y_true_val, y_pred_val):
-                if qid not in val_results:
-                    val_results[qid] = []
-                val_results[qid].append((true_label, pred_label))
-            
-            val_ndcg, val_p = calculate_metrics(val_results)
-            self.diffusion.num_timesteps = 50
-            
+            val_ndcg, val_p = self.compute_ranking_metrics_by_imputation(self.val_dataset.X, 'val')
+            test_ndcg, test_p = self.compute_ranking_metrics_by_imputation(self.test_dataset.X, 'test')
+
             loss_dict = {
                 "epoch": epoch + 1,
                 "lr": curr_lr,
@@ -223,8 +235,13 @@ class Trainer:
                 "loss/val_c_loss": val_gloss,
                 "loss/val_d_loss": val_mloss,
                 "loss/val_total_loss": val_loss,
-                "loss/ndcg": val_ndcg,
-                "loss/p": val_p,
+                "loss/test_c_loss": test_gloss,
+                "loss/test_d_loss": test_mloss,
+                "loss/test_total_loss": test_loss,
+                "loss/val_ndcg": val_ndcg,
+                "loss/val_p": val_p,
+                "loss/test_ndcg": test_ndcg,
+                "loss/test_p": test_p,
             }
             log_dict.update(loss_dict)
             
@@ -236,7 +253,7 @@ class Trainer:
                 num_noise_dict = {"num_noise/rho": self.diffusion.num_schedule.rho().item()}
             log_dict.update(num_noise_dict)
 
-            # Log the learned noise schedules for categlrical dimensions
+            # Log the learned noise schedules for categorical dimensions
             cat_noise_dict = {}
             if self.diffusion.cat_schedule.k().dim() == 0:   # non-learnable cat schedule
                 cat_noise_dict = {"cat_noise/k": self.diffusion.cat_schedule.k().item()}
