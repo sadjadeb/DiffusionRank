@@ -257,8 +257,10 @@ class Trainer:
                 raise NotImplementedError(f"LR scheduler with name '{self.lr_scheduler}' is not implemented")
             
             # Save ckpt base on the best training loss
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            # if val_loss < best_val_loss:
+            #     best_val_loss = val_loss
+            if val_ndcg > best_val_ndcg:
+                best_val_ndcg = val_ndcg
                 to_remove = glob.glob(os.path.join(self.model_save_path, f"best_model_*"))
                 if to_remove:
                     os.remove(to_remove[0])
