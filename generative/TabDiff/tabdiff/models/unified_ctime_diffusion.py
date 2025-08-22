@@ -75,6 +75,10 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             self.num_schedule = PowerMeanNoise(**noise_schedule_params)
         elif self.scheduler == 'power_mean_per_column':
             self.num_schedule = PowerMeanNoise_PerColumn(num_numerical = num_numerical_features, **noise_schedule_params)
+        elif self.scheduler == 'linear':
+            self.num_schedule = LinearNoise(**noise_schedule_params)
+        elif self.scheduler == 'cosine':
+            self.num_schedule = CosineNoise(**noise_schedule_params)
         else:
             raise NotImplementedError(f"The noise schedule--{self.scheduler}-- is not implemented for contiuous data at CTIME ")
         
@@ -82,8 +86,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             self.cat_schedule = LogLinearNoise(**noise_schedule_params)
         elif self.cat_scheduler == 'log_linear_per_column':
             self.cat_schedule = LogLinearNoise_PerColumn(num_categories = len(num_classes), **noise_schedule_params)
-        elif self.cat_scheduler == 'linear':
-            self.cat_schedule = LinearNoise(**noise_schedule_params)
         else:
             raise NotImplementedError(f"The noise schedule--{self.cat_scheduler}-- is not implemented for discrete data at CTIME ")
 

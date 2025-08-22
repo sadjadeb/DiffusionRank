@@ -21,9 +21,8 @@ class Noise(abc.ABC, nn.Module):
   
 
 class LinearNoise(Noise):
-  """Linear noise schedule.
-  
-  This is the schedule used in DDPM
+  """
+  Linear noise schedule.  
   """
   def __init__(self, sigma_min=0.002, sigma_max=80, **kwargs):
     super().__init__()
@@ -40,9 +39,28 @@ class LinearNoise(Noise):
     return self.sigma_min + t * (self.sigma_max - self.sigma_min)
 
 
-class LogLinearNoise(Noise):
-  """Log Linear noise schedule.
+class CosineNoise(Noise):
+  """
+  Cosine noise schedule.
+  """
+  def __init__(self, sigma_min=0.002, sigma_max=80, **kwargs):
+    super().__init__()
+    self.sigma_min = sigma_min
+    self.sigma_max = sigma_max
     
+  def k(self):
+    return torch.tensor(1)
+
+  def rate_noise(self, t):
+    return (self.sigma_max - self.sigma_min) * torch.pi * torch.sin(torch.pi * t) / 2
+
+  def total_noise(self, t):
+    return self.sigma_min + (self.sigma_max - self.sigma_min) * (1 - torch.cos(t * torch.pi)) / 2
+
+
+class LogLinearNoise(Noise):
+  """
+  Log Linear noise schedule.  
   """
   def __init__(self, eps_max=1e-3, eps_min=1e-5, **kwargs):
     super().__init__()
@@ -65,8 +83,9 @@ class LogLinearNoise(Noise):
     return -torch.log1p(-((1 - self.eps_max - self.eps_min) * t + self.eps_min))
   
 class PowerMeanNoise(Noise):
-  """The noise schedule using the power mean interpolation function.
-  
+  """
+  The noise schedule using the power mean interpolation function.
+
   This is the schedule used in EDM
   """
   def __init__(self, sigma_min=0.002, sigma_max=80, rho=7, **kwargs):
