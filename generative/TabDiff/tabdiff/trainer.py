@@ -135,6 +135,7 @@ class Trainer:
 
     def compute_ranking_metrics_by_imputation(self, data_dataset, split):
         # Evaluate on validation and test set to compute NDCG and P
+        default_num_timesteps = self.diffusion.num_timesteps
         self.diffusion.num_timesteps = 1
         
         num_mask_idx, cat_mask_idx = [], [0]
@@ -154,7 +155,7 @@ class Trainer:
                 results[qid] = []
             results[qid].append((true_label, pred_label))
         
-        self.diffusion.num_timesteps = 50
+        self.diffusion.num_timesteps = default_num_timesteps
         
         avg_ndcg, avg_p = calculate_metrics(results)
         return avg_ndcg, avg_p
