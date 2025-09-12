@@ -8,7 +8,7 @@ import pandas as pd
 import json
 from utils import calculate_metrics
 from copy import deepcopy
-
+import math
 from utils_train import update_ema
 
 from tqdm import tqdm
@@ -186,8 +186,33 @@ class Trainer:
             elif self.closs_weight_schedule == "anneal":
                 frac_done = epoch / self.steps
                 closs_weight = self.c_lambda * (1 - frac_done)
+            elif self.closs_weight_schedule == "half_cutoff":
+                frac_done = epoch / self.steps
+                closs_weight = self.c_lambda if frac_done < 0.5 else 0.0
+            elif self.closs_weight_schedule == "triangle":
+                frac_done = epoch / self.steps
+                if frac_done <= 0.5:
+                    closs_weight = self.c_lambda * (frac_done / 0.5)        # ramp up
+                else:
+                    closs_weight = self.c_lambda * (1 - (frac_done - 0.5)/0.5)  # ramp down
+            elif self.closs_weight_schedule == "smooth_cutoff":
+                # closs = c_lambda * (1 - sigmoid(k*(x - t0)))
+                frac_done = epoch / self.steps
+                k = 12.0          # sharpness (same default as plot)
+                t0 = 0.5          # center of the transition (same default as plot)
+                a = max(min(k * (frac_done - t0), 50.0), -50.0)  # clip to avoid overflow
+                sig = 1.0 / (1.0 + math.exp(-a))
+                closs_weight = self.c_lambda * (1.0 - sig)
+            elif self.closs_weight_schedule == "gaussian_like":
+                # closs_weight = c_lambda * exp(-0.5 * ((x - mu)/sigma)^2)
+                # Defaults: peak at halfway (mu=0.5) with moderate width (sigma=0.15)
+                frac_done = epoch / self.steps
+                mu = getattr(self, "gauss_center", 0.5)   # center of the bump
+                sigma = max(float(getattr(self, "gauss_width", 0.15)), 1e-6)  # controls spread; must be > 0
+                z = (frac_done - mu) / sigma
+                closs_weight = self.c_lambda * math.exp(-0.5 * z * z)
             else:
-                raise NotImplementedError(f"The continuous loss weight schedule {self.closs_weight_schedule} is not implemneted")
+                raise NotImplementedError(f"The continuous loss weight schedule {self.closs_weight_schedule} is not implemented")
 
             # Training Step
             curr_dloss = 0.0
