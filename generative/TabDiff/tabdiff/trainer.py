@@ -37,6 +37,9 @@ class Trainer:
             ckpt_path = None,
             is_finetune=False,
             raw_data_dir=None,
+            bell_mu=None,
+            bell_sigma=None,
+            bell_peak=None,
             **kwargs
     ):
         self.diffusion = diffusion
@@ -61,10 +64,14 @@ class Trainer:
         self.optimizer = torch.optim.AdamW(self.diffusion.parameters(), lr=lr, weight_decay=weight_decay)
         self.ema_decay = ema_decay
         self.lr_scheduler = lr_scheduler
-        self.scheduler = ReduceLROnPlateau(self.optimizer, mode='min', factor=factor, patience=reduce_lr_patience, verbose=True)
+        self.scheduler = ReduceLROnPlateau(self.optimizer, mode='min', factor=factor, patience=reduce_lr_patience)
         self.closs_weight_schedule = closs_weight_schedule
         self.c_lambda = c_lambda
         self.d_lambda = d_lambda
+
+        self.bell_mu = bell_mu
+        self.bell_sigma = bell_sigma
+        self.bell_peak = bell_peak
 
         self.batch_size = batch_size
         self.sample_batch_size = sample_batch_size
