@@ -204,14 +204,17 @@ class Trainer:
                 a = max(min(k * (frac_done - t0), 50.0), -50.0)  # clip to avoid overflow
                 sig = 1.0 / (1.0 + math.exp(-a))
                 closs_weight = self.c_lambda * (1.0 - sig)
-            elif self.closs_weight_schedule == "gaussian_like":
-                # closs_weight = c_lambda * exp(-0.5 * ((x - mu)/sigma)^2)
-                # Defaults: peak at halfway (mu=0.5) with moderate width (sigma=0.15)
+            elif self.closs_weight_schedule == "bell_like":
+                # closs_weight = c_lambda * exp(-0.5 * ((x - mu)/sigma)^2) * peak
+                # Defaults: peak at halfway (mu=0.5) with moderate width (sigma=0.15) and peak value of 1.0
                 frac_done = epoch / self.steps
-                mu = getattr(self, "gauss_center", 0.5)   # center of the bump
-                sigma = max(float(getattr(self, "gauss_width", 0.15)), 1e-6)  # controls spread; must be > 0
+                mu = self.bell_mu or 0.5
+                sigma = self.bell_sigma or 0.15
+                bell_peak = self.bell_peak or 1.0
+
                 z = (frac_done - mu) / sigma
-                closs_weight = self.c_lambda * math.exp(-0.5 * z * z)
+                shape = math.exp(-0.5 * z * z)
+                closs_weight = self.c_lambda * bell_peak * shape
             else:
                 raise NotImplementedError(f"The continuous loss weight schedule {self.closs_weight_schedule} is not implemented")
 
@@ -261,11 +264,11 @@ class Trainer:
                 "loss/val_c_loss": val_gloss,
                 "loss/val_d_loss": val_mloss,
                 "loss/val_total_loss": val_loss,
+                "loss/val_ndcg": val_ndcg,
+                "loss/val_p": val_p,
                 "loss/test_c_loss": test_gloss,
                 "loss/test_d_loss": test_mloss,
                 "loss/test_total_loss": test_loss,
-                "loss/val_ndcg": val_ndcg,
-                "loss/val_p": val_p,
                 "loss/test_ndcg": test_ndcg,
                 "loss/test_p": test_p,
             }

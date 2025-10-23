@@ -14,8 +14,18 @@ if __name__ == '__main__':
     parser.add_argument('--no_wandb', action='store_true', help='disable wandb')
     parser.add_argument('--exp_name', type=str, default=None, help='Experiment name, used to name log directories and the wandb run name')
     parser.add_argument('--deterministic', action='store_true', help='Whether to make the entire process deterministic, i.e., fix global random seeds')
-    parser.add_argument('--batch_size', type=int, default=4096, help='Batch size for training and evaluation')
     
+    parser.add_argument('--batch_size', type=int, default=4096, help='Batch size for training and evaluation')
+    parser.add_argument('--lr', type=float, default=5e-6, help='Learning rate')
+    parser.add_argument('--closs_weight_schedule', type=str, default='anneal')
+    parser.add_argument('--dim_t' , type=int, default=256)
+    parser.add_argument('--num_layers', type=int, default=4)
+    parser.add_argument('--steps', type=int, default=15000, help='Number of training steps')
+    
+    parser.add_argument('--bell_mu', type=float, default=None, help='mu parameter for the bell noise schedule')
+    parser.add_argument('--bell_peak', type=float, default=None, help='peak parameter for the bell noise schedule')
+    parser.add_argument('--bell_sigma', type=float, default=None, help='sigma parameter for the bell noise schedule. If None, it will be set to 1/(2*mu)')
+
     # Configs for tabdiff
     parser.add_argument('--non_learnable_schedule', action='store_true', help='disable learnable noise schedule')
     

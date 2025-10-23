@@ -73,7 +73,7 @@ def main(args):
             print("Finetuning is enabled, will load the finetune_ckpt_path")
             
             ckpt_path = args.finetune_ckpt_path
-            raw_config['train']['main']['c_lambda'] = 0.0
+            raw_config['train']['main']['c_lambda'] = 1.0
             raw_config['train']['main']['d_lambda'] = 1.0
             if args.finetune_ckpt_path is None:
                 raise ValueError("Please provide the finetune_ckpt_path to finetune the model!")
@@ -108,11 +108,9 @@ def main(args):
     raw_config['model_save_path'] = model_save_path
     raw_config['result_save_path'] = result_save_path
     if model_save_path is not None:
-        if not os.path.exists(model_save_path):
-            os.makedirs(model_save_path)
+        os.makedirs(model_save_path, exist_ok=True)
     if result_save_path is not None:
-        if not os.path.exists(result_save_path):
-            os.makedirs(result_save_path)
+        os.makedirs(result_save_path, exist_ok=True)
     
     ## Make everything determinstic if needed
     raw_config['deterministic'] = args.deterministic
@@ -142,9 +140,14 @@ def main(args):
         raw_config['sample']['batch_size'] = 10000
 
     ## Load training data
+    raw_config['train']['main']['steps'] = args.steps
+    raw_config['train']['main']['lr'] = args.lr
+    raw_config['train']['main']['closs_weight_schedule'] = args.closs_weight_schedule
+    raw_config['unimodmlp_params']['dim_t'] = args.dim_t
+    raw_config['unimodmlp_params']['num_layers'] = args.num_layers
     raw_config['train']['main']['batch_size'] = args.batch_size
     batch_size = raw_config['train']['main']['batch_size']
-
+    
     train_data = TabDiffDataset(dataname, data_dir, info, split='train', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
     train_loader = DataLoader(
         train_data,
@@ -178,26 +181,14 @@ def main(args):
     if not os.path.exists(val_data_path):
         print(f"{args.dataname} does not have its validation set. During MLE evaluation, a validation set will be splitted from the training set!")
         val_data_path = None
-    if args.mode == 'train':
-        metric_list = ["density"]
-    else:
-        if is_dcr:
-            metric_list = ["dcr"]
-        else:
-            metric_list = [
-                "density", 
-                "mle", 
-                "c2st",
-            ]
-    metrics = TabMetrics(real_data_path, test_data_path, val_data_path, info, device, metric_list=metric_list)
+    
+    metrics = TabMetrics(real_data_path, test_data_path, val_data_path, info, device, metric_list=[])
     
     ## Load the module and models
     raw_config['unimodmlp_params']['d_numerical'] = d_numerical
     raw_config['unimodmlp_params']['categories'] = (categories+1).tolist()  # add one for the mask category
             
-    backbone = UniModOnlyMLP(
-        **raw_config['unimodmlp_params']
-    )
+    backbone = UniModOnlyMLP(**raw_config['unimodmlp_params'])
     model = Model(backbone, **raw_config['diffusion_params']['edm_params'])
     model.to(device)
     
@@ -253,7 +244,10 @@ def main(args):
         device=device,
         ckpt_path=ckpt_path,
         is_finetune=args.finetune,
-        raw_data_dir=data_dir
+        raw_data_dir=data_dir,
+        bell_mu=args.bell_mu,
+        bell_peak=args.bell_peak,
+        bell_sigma=args.bell_sigma
     )
     if args.mode == 'test':
         if args.impute:
