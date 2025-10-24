@@ -12,16 +12,10 @@ from tabdiff.models.unified_ctime_diffusion import UnifiedCtimeDiffusion
 from tabdiff.trainer import Trainer
 import src
 import torch
-
-from torch.utils.data import DataLoader
 import argparse
 import warnings
-
 import wandb
-
-from copy import deepcopy
-
-from utils_train import TabDiffDataset
+from sklearn.preprocessing import QuantileTransformer
 
 warnings.filterwarnings('ignore')
 
@@ -132,13 +126,6 @@ def main(args):
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
     
-    ## Set debug mode parameters
-    if args.debug:  # fast eval for DEBUG mode
-        raw_config['train']['main']['check_val_every'] = 2
-        raw_config['diffusion_params']['num_timesteps'] = 4
-        raw_config['train']['main']['batch_size'] = 4096
-        raw_config['sample']['batch_size'] = 10000
-
     ## Load training data
     raw_config['train']['main']['steps'] = args.steps
     raw_config['train']['main']['lr'] = args.lr
@@ -146,33 +133,54 @@ def main(args):
     raw_config['unimodmlp_params']['dim_t'] = args.dim_t
     raw_config['unimodmlp_params']['num_layers'] = args.num_layers
     raw_config['train']['main']['batch_size'] = args.batch_size
-    batch_size = raw_config['train']['main']['batch_size']
     
-    train_data = TabDiffDataset(dataname, data_dir, info, split='train', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
-    train_loader = DataLoader(
-        train_data,
-        batch_size = batch_size,
-        shuffle = True,
-        num_workers = 4,
-    )
-    d_numerical, categories = train_data.d_numerical, train_data.categories
+    dataset = args.dataname
+    k = args.k if args.k else 1.0
+    d_numerical = 136 if 'MSLR' in dataset else 46
+    categories = np.array([2])
     
-    val_data = TabDiffDataset(dataname, data_dir, info, split='val', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
-    val_loader = DataLoader(
-        val_data,
-        batch_size = batch_size,
-        shuffle = False,
-        num_workers = 4,
-    )
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
     
-    test_data = TabDiffDataset(dataname, data_dir, info, split='test', dequant_dist=raw_config['data']['dequant_dist'], int_dequant_factor=raw_config['data']['int_dequant_factor'])
-    test_loader = DataLoader(
-        test_data,
-        batch_size = batch_size,
-        shuffle = False,
-        num_workers = 4,
-    )
-    print(f"Train data size: {len(train_data)}, Val data size: {len(val_data)}, Test data size: {len(test_data)}")
+    X_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'X_num_train.npy'))
+    y_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'y_train.npy'))
+    # Replace all labels greater than 1 with 1
+    y_train[y_train > 1] = 1
+
+    X_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'X_num_val.npy'))
+    y_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'y_val.npy'))
+    idx_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'idx_val.npy'))
+    # Replace all labels greater than 1 with 1
+    y_val[y_val > 1] = 1
+
+    X_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'X_num_test.npy'))
+    y_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'y_test.npy'))
+    idx_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'idx_test.npy'))
+    # Replace all labels greater than 1 with 1
+    y_test[y_test > 1] = 1
+
+    # Apply QuantileTransformer
+    normalizer = QuantileTransformer(
+                output_distribution='normal',
+                n_quantiles=max(min(X_train.shape[0] // 30, 1000), 10),
+                subsample=int(1e9),
+                random_state=seed,
+            )
+    X_train = normalizer.fit_transform(X_train)
+    X_val = normalizer.transform(X_val)
+    X_test = normalizer.transform(X_test)
+    
+    # concat the X_train and y_train
+    X_train = np.concatenate([X_train, y_train.reshape(-1, 1)], axis=1)
+    X_val = np.concatenate([X_val, y_val.reshape(-1, 1)], axis=1)
+    X_test = np.concatenate([X_test, y_test.reshape(-1, 1)], axis=1)
+    print(f"Train data shape: {X_train.shape}, Val data shape: {X_val.shape}, Test data shape: {X_test.shape}")
+    
+    # Create a dataloader for the training data using pytorch
+    train_data = torch.from_numpy(X_train).float().to(device)
+    # Create a dataloader for the validation data using pytorch
+    val_data = torch.from_numpy(X_val).float().to(device)
+    # Create a dataloader for the test data using pytorch
+    test_data = torch.from_numpy(X_test).float().to(device)
 
     ## Load Metrics
     real_data_path = f'synthetic/{dataname}/real.csv'
@@ -228,12 +236,13 @@ def main(args):
     sample_batch_size = raw_config['sample']['batch_size']
     trainer = Trainer(
         diffusion,
-        train_loader,
         train_data,
-        val_loader,
         val_data,
-        test_loader,
+        idx_val,
         test_data,
+        idx_test,
+        d_numerical,
+        categories,
         metrics,
         logger,
         **raw_config['train']['main'],

@@ -12,6 +12,7 @@ import math
 from utils_train import update_ema
 
 from tqdm import tqdm
+from torch.utils.data import DataLoader
 
 BAR = "=============="
 def print_with_bar(log_msg):
@@ -22,9 +23,10 @@ def print_with_bar(log_msg):
 
 class Trainer:
     def __init__(
-            self, diffusion, train_iter, train_dataset, val_iter, val_dataset, test_iter, test_dataset, metrics, logger, 
-            lr, weight_decay,
-            steps, batch_size, check_val_every,
+            self, diffusion, train_data, val_data, idx_val, test_data, idx_test, 
+            d_numerical, categories,
+            metrics, logger, 
+            lr, weight_decay, steps, batch_size, check_val_every,
             sample_batch_size, model_save_path, result_save_path,
             num_samples_to_generate=None,
             lr_scheduler='reduce_lr_on_plateau',
@@ -53,12 +55,18 @@ class Trainer:
         for param in self.ema_cat_schedule.parameters():
             param.detach_()
 
-        self.train_iter = train_iter
-        self.dataset = train_dataset
-        self.val_iter = val_iter
-        self.val_dataset = val_dataset
-        self.test_iter = test_iter
-        self.test_dataset = test_dataset
+        self.train_data = train_data
+        self.train_iter = DataLoader(train_data, batch_size=batch_size, shuffle=False)
+        self.val_iter = DataLoader(val_data, batch_size=batch_size, shuffle=False)
+        self.val_data = val_data
+        self.idx_val = idx_val
+        self.test_iter = DataLoader(test_data, batch_size=batch_size, shuffle=False)
+        self.test_data = test_data
+        self.idx_test = idx_test
+        
+        self.d_numerical = d_numerical
+        self.categories = categories
+        
         self.steps = steps
         self.init_lr = lr
         self.optimizer = torch.optim.AdamW(self.diffusion.parameters(), lr=lr, weight_decay=weight_decay)
@@ -140,21 +148,19 @@ class Trainer:
         gloss = np.around(curr_closs / curr_count, 4)
         return mloss, gloss
 
-    def compute_ranking_metrics_by_imputation(self, data_dataset, split):
+    def compute_ranking_metrics_by_imputation(self, data, idx):
         # Evaluate on validation and test set to compute NDCG and P
         default_num_timesteps = self.diffusion.num_timesteps
         self.diffusion.num_timesteps = 1
         
         num_mask_idx, cat_mask_idx = [], [0]
-        x_num, x_cat = data_dataset[:, :self.dataset.d_numerical].to(self.device), data_dataset[:, self.dataset.d_numerical:].long().to(self.device)
-        x_cat[:, cat_mask_idx] = torch.tensor(self.dataset.categories, dtype=x_cat.dtype, device=x_cat.device)[cat_mask_idx]
+        x_num, x_cat = data[:, :self.d_numerical].to(self.device), data[:, self.d_numerical:].long().to(self.device)
+        x_cat[:, cat_mask_idx] = torch.tensor(self.categories, dtype=x_cat.dtype, device=x_cat.device)[cat_mask_idx]
         syn_data = self.diffusion.sample_impute(x_num, x_cat, num_mask_idx, cat_mask_idx, 'x_0')
         
         info = self.metrics.info
         y_pred = syn_data[:, info['target_col_idx'][0]].detach().numpy()
-        raw_data = pd.read_csv(os.path.join(self.raw_data_dir, f'{split}.csv'))
-        idx = raw_data[str(info['target_col_idx'][0] + 1)].values
-        y_true = raw_data[str(info['target_col_idx'][0])].values
+        y_true = data[:, self.d_numerical:].squeeze().cpu().numpy()
         
         results = {}
         for qid, true_label, pred_label in zip(idx, y_true, y_pred):
@@ -256,9 +262,9 @@ class Trainer:
 
             test_mloss, test_gloss = self.compute_loss(self.test_iter)
             test_loss = test_mloss + test_gloss
-            
-            val_ndcg, val_p = self.compute_ranking_metrics_by_imputation(self.val_dataset.X, 'val')
-            test_ndcg, test_p = self.compute_ranking_metrics_by_imputation(self.test_dataset.X, 'test')
+
+            val_ndcg, val_p = self.compute_ranking_metrics_by_imputation(self.val_data, self.idx_val)
+            test_ndcg, test_p = self.compute_ranking_metrics_by_imputation(self.test_data, self.idx_test)
 
             loss_dict = {
                 "epoch": epoch + 1,
