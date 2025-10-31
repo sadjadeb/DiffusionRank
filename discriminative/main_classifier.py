@@ -23,6 +23,7 @@ parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dat
 parser.add_argument('--no_wandb', action='store_true', help='Disable Weights & Biases logging')
 parser.add_argument('--checkpoint', type=str, default=None, help='Path to the model checkpoint to load')
 parser.add_argument('--save_best_by', type=str, default='loss', choices=['ndcg', 'loss'], help='Criterion to save the best model by')
+parser.add_argument('--num_hidden_nodes', type=int, help='Number of hidden nodes in the model')
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -41,7 +42,7 @@ data_normalization = 'quantile'  # ['quantile', None]
 num_epochs = 5000
 dropout_rate = 0.1
 learning_rate = 5e-6
-num_hidden_nodes = 256 if 'MSLR' in dataset else 128
+num_hidden_nodes = args.num_hidden_nodes
 batch_size = 4096
 
 wandb.init(project=f"ltr_npy_{dataset}_classifier", 
