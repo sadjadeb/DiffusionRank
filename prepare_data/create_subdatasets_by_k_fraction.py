@@ -3,6 +3,7 @@ import numpy as np
 import json
 import shutil
 from utils import set_all_seeds
+import argparse
 
 # Set random seeds for reproducibility
 seed = 42
@@ -61,9 +62,12 @@ def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Create subsamples by fraction for a given dataset")
+    parser.add_argument("--dataset", choices=["MQ2007", "MQ2008", "MSLR-WEB10K", "MSLR-WEB30K"], help="Dataset name")
+    args = parser.parse_args()
+    
     # Base directory and k values
-    dataset = "MSLR-WEB30K"  # ["MQ2007", "MQ2008", "MSLR-WEB10K", "MSLR-WEB30K"]
-    base_dir = os.path.join("..", "data", dataset)
+    base_dir = os.path.join("..", "data", args.dataset)
     k_values = [1.0, 0.5, 0.25, 0.0625, 0.015625, 0.00390625]
 
     # Load train data and other files
