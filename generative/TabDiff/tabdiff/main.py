@@ -3,9 +3,7 @@ import json
 import os
 import pickle
 import random
-
 import numpy as np
-from tabdiff.metrics import TabMetrics
 from tabdiff.modules.main_modules import UniModMLP, UniModOnlyMLP
 from tabdiff.modules.main_modules import Model
 from tabdiff.models.unified_ctime_diffusion import UnifiedCtimeDiffusion
@@ -30,10 +28,6 @@ def main(args):
     ## Get data info
     dataname = args.dataname
     data_dir = f'data/{dataname}'
-    info_path = f'data/{dataname}/info.json'
-    
-    ## Set up flags
-    is_dcr = 'dcr' in dataname
 
     ## Set experiment name
     exp_name = args.exp_name
@@ -54,12 +48,8 @@ def main(args):
         
         exp_name += f"_k{args.k}"
         data_dir = f'data/{dataname}_k{args.k}'
-        info_path = f'data/{dataname}_k{args.k}/info.json'
         if not os.path.exists(data_dir):
             raise ValueError(f"The data directory {data_dir} does not exist, please make sure that you first prepare the data for finetuning!")
-    
-    with open(info_path, 'r') as f:
-        info = json.load(f)
     
     if args.mode == 'train':
         print("NEW training is started")                
@@ -134,27 +124,27 @@ def main(args):
     raw_config['unimodmlp_params']['num_layers'] = args.num_layers
     raw_config['train']['main']['batch_size'] = args.batch_size
     
-    dataset = args.dataname
     k = args.k if args.k else 1.0
-    d_numerical = 136 if 'MSLR' in dataset else 46
+    d_numerical = 136 if 'MSLR' in dataname else 46
     categories = np.array([2])
     
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
     
-    X_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'X_num_train.npy'))
-    y_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'y_train.npy'))
+    X_train = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'X_num_train.npy'))
+    y_train = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'y_train.npy'))
+    X_train_unlabeled = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'X_num_train_non.npy'))
     # Replace all labels greater than 1 with 1
     y_train[y_train > 1] = 1
 
-    X_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'X_num_val.npy'))
-    y_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'y_val.npy'))
-    idx_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'idx_val.npy'))
+    X_val = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'X_num_val.npy'))
+    y_val = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'y_val.npy'))
+    idx_val = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'idx_val.npy'))
     # Replace all labels greater than 1 with 1
     y_val[y_val > 1] = 1
 
-    X_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'X_num_test.npy'))
-    y_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'y_test.npy'))
-    idx_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}', 'idx_test.npy'))
+    X_test = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'X_num_test.npy'))
+    y_test = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'y_test.npy'))
+    idx_test = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'idx_test.npy'))
     # Replace all labels greater than 1 with 1
     y_test[y_test > 1] = 1
 
@@ -181,16 +171,7 @@ def main(args):
     val_data = torch.from_numpy(X_val).float().to(device)
     # Create a dataloader for the test data using pytorch
     test_data = torch.from_numpy(X_test).float().to(device)
-
-    ## Load Metrics
-    real_data_path = f'synthetic/{dataname}/real.csv'
-    test_data_path = f'synthetic/{dataname}/test.csv'
-    val_data_path = f'synthetic/{dataname}/val.csv'
-    if not os.path.exists(val_data_path):
-        print(f"{args.dataname} does not have its validation set. During MLE evaluation, a validation set will be splitted from the training set!")
-        val_data_path = None
     
-    metrics = TabMetrics(real_data_path, test_data_path, val_data_path, info, device, metric_list=[])
     
     ## Load the module and models
     raw_config['unimodmlp_params']['d_numerical'] = d_numerical
@@ -243,7 +224,7 @@ def main(args):
         idx_test,
         d_numerical,
         categories,
-        metrics,
+        k,
         logger,
         **raw_config['train']['main'],
         sample_batch_size=sample_batch_size,

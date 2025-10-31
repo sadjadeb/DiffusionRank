@@ -84,7 +84,6 @@ class Trainer:
         self.batch_size = batch_size
         self.sample_batch_size = sample_batch_size
         self.num_samples_to_generate = num_samples_to_generate
-        self.metrics = metrics
         self.logger = logger
         self.check_val_every = check_val_every
         
@@ -115,7 +114,6 @@ class Trainer:
         x = x.to(self.device)
         
         self.diffusion.train()
-
         self.optimizer.zero_grad()
 
         dloss, closs = self.diffusion.mixed_loss(x)
@@ -158,8 +156,8 @@ class Trainer:
         x_cat[:, cat_mask_idx] = torch.tensor(self.categories, dtype=x_cat.dtype, device=x_cat.device)[cat_mask_idx]
         syn_data = self.diffusion.sample_impute(x_num, x_cat, num_mask_idx, cat_mask_idx, 'x_0')
         
-        info = self.metrics.info
-        y_pred = syn_data[:, info['target_col_idx'][0]].detach().numpy()
+        label_column_idx = self.d_numerical
+        y_pred = syn_data[:, label_column_idx].detach().numpy()
         y_true = data[:, self.d_numerical:].squeeze().cpu().numpy()
         
         results = {}
