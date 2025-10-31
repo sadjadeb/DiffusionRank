@@ -59,21 +59,23 @@ wandb.config.update({
 
 # Set data paths
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+data_dir = os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}')
 
-X_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_train.npy'))
-y_train = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_train.npy'))
+
+X_train = np.load(os.path.join(data_dir, 'X_num_train.npy'))
+y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
 # Replace all labels greater than 1 with 1
 y_train[y_train > 1] = 1
 
-X_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_val.npy'))
-y_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_val.npy'))
-idx_val = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_val.npy'))
+X_val = np.load(os.path.join(data_dir, 'X_num_val.npy'))
+y_val = np.load(os.path.join(data_dir, 'y_val.npy'))
+idx_val = np.load(os.path.join(data_dir, 'idx_val.npy'))
 # Replace all labels greater than 1 with 1
 y_val[y_val > 1] = 1
 
-X_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'X_num_test.npy'))
-y_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'y_test.npy'))
-idx_test = np.load(os.path.join(project_root, 'data', dataset, 'by_fraction', f'k{k}', 'idx_test.npy'))
+X_test = np.load(os.path.join(data_dir, 'X_num_test.npy'))
+y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
+idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
 # Replace all labels greater than 1 with 1
 y_test[y_test > 1] = 1
 

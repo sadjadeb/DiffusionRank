@@ -27,7 +27,12 @@ def main(args):
 
     ## Get data info
     dataname = args.dataname
-    data_dir = f'data/{dataname}'
+    k = args.k if args.k else 1.0
+    d_numerical = 136 if 'MSLR' in dataname else 46
+    categories = np.array([2])
+    
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+    data_dir = os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}')
 
     ## Set experiment name
     exp_name = args.exp_name
@@ -44,12 +49,8 @@ def main(args):
     ckpt_path = None
     
     if args.k:
-        print(f"Training with {args.k} portion of the training data")
-        
+        print(f"Training with {args.k} portion of the training data")    
         exp_name += f"_k{args.k}"
-        data_dir = f'data/{dataname}_k{args.k}'
-        if not os.path.exists(data_dir):
-            raise ValueError(f"The data directory {data_dir} does not exist, please make sure that you first prepare the data for finetuning!")
     
     if args.mode == 'train':
         print("NEW training is started")                
@@ -123,28 +124,22 @@ def main(args):
     raw_config['unimodmlp_params']['dim_t'] = args.dim_t
     raw_config['unimodmlp_params']['num_layers'] = args.num_layers
     raw_config['train']['main']['batch_size'] = args.batch_size
-    
-    k = args.k if args.k else 1.0
-    d_numerical = 136 if 'MSLR' in dataname else 46
-    categories = np.array([2])
-    
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-    
-    X_train = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'X_num_train.npy'))
-    y_train = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'y_train.npy'))
-    X_train_unlabeled = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'X_num_train_non.npy'))
+        
+    X_train = np.load(os.path.join(data_dir, 'X_num_train.npy'))
+    y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
+    X_train_unlabeled = np.load(os.path.join(data_dir, 'X_num_train_non.npy'))
     # Replace all labels greater than 1 with 1
     y_train[y_train > 1] = 1
 
-    X_val = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'X_num_val.npy'))
-    y_val = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'y_val.npy'))
-    idx_val = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'idx_val.npy'))
+    X_val = np.load(os.path.join(data_dir, 'X_num_val.npy'))
+    y_val = np.load(os.path.join(data_dir, 'y_val.npy'))
+    idx_val = np.load(os.path.join(data_dir, 'idx_val.npy'))
     # Replace all labels greater than 1 with 1
     y_val[y_val > 1] = 1
 
-    X_test = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'X_num_test.npy'))
-    y_test = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'y_test.npy'))
-    idx_test = np.load(os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}', 'idx_test.npy'))
+    X_test = np.load(os.path.join(data_dir, 'X_num_test.npy'))
+    y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
+    idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
     # Replace all labels greater than 1 with 1
     y_test[y_test > 1] = 1
 
