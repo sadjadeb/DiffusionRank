@@ -104,13 +104,13 @@ test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_siz
 
 # Create model, optimizer, and loss function
 net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach='classifier', dropout_rate=dropout_rate).to(device)
-optimizer = optim.Adam(net.parameters(), lr=learning_rate)
+optimizer = optim.AdamW(net.parameters(), lr=learning_rate)
 criterion = nn.CrossEntropyLoss()
 
 if args.checkpoint:
-    print(f"Loading model from checkpoint: {args.checkpoint}")
     checkpoint = torch.load(args.checkpoint, map_location=device)
     net.load_state_dict(checkpoint)
+    print(f"Weights loaded from checkpoint: {args.checkpoint}")
 
 
 def train(net):
