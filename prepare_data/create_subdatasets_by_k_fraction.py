@@ -9,28 +9,27 @@ seed = 42
 set_all_seeds(seed)
 
 
-def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, info):
+def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path, info):
     for k in k_values:
         # Calculate the number of samples to retain
         n_samples = int(len(idx_train) * k)
         
         # Subsample the data
         subsample_idx = np.random.choice(len(idx_train), n_samples, replace=False)
-        mask = np.zeros(len(idx_train), dtype=bool)
-        mask[subsample_idx] = True
+        to_select = np.zeros(len(idx_train), dtype=bool)
+        to_select[subsample_idx] = True
         
         # Extract sampled and non-sampled data
-        idx_train_k = idx_train[mask]
-        X_num_train_k = X_num_train[mask]
-        y_train_k = y_train[mask]
+        idx_train_k = idx_train[to_select]
+        X_num_train_k = X_num_train[to_select]
+        y_train_k = y_train[to_select]
         
-        # Non-sampled data (if save_non_sampled is True)
-        idx_train_non_k = idx_train[~mask]
-        X_num_train_non_k = X_num_train[~mask]
-        y_train_non_k = y_train[~mask]
+        idx_train_non_k = idx_train[~to_select]
+        X_num_train_non_k = X_num_train[~to_select]
+        y_train_non_k = y_train[~to_select]
 
         # Create a new directory for the subsample
-        k_dir = os.path.join('data', f"{dataset}_k{k}")
+        k_dir = os.path.join(base_dir, "by_fraction", "Fold1", f"k{k}")
         os.makedirs(k_dir, exist_ok=True)
 
         # Update the train_size in info.json
@@ -50,7 +49,7 @@ def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, info)
         # Copy the test and validation files directly
         for filename in ["idx_test.npy", "X_num_test.npy", "y_test.npy", 
                          "idx_val.npy", "X_num_val.npy", "y_val.npy"]:
-            shutil.copy(os.path.join(base_dir, filename), os.path.join(k_dir, filename))
+            shutil.copy(os.path.join(input_data_path, filename), os.path.join(k_dir, filename))
 
         # Save the updated info.json
         with open(os.path.join(k_dir, "info.json"), "w") as f:
@@ -61,18 +60,19 @@ def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, info)
 
 
 
-if __name__ == '__main__':
-        # Base directory and k values
-    dataset = "MSLR-Web30K"
-    base_dir = os.path.join("..", "data", dataset, "npy", "Fold1")
-    k_values = [1.0, 0.5, 0.25, 0.125, 0.0625]
+if __name__ == "__main__":
+    # Base directory and k values
+    dataset = "MSLR-WEB30K"  # ["MQ2007", "MQ2008", "MSLR-WEB10K", "MSLR-WEB30K"]
+    base_dir = os.path.join("..", "data", dataset)
+    k_values = [1.0, 0.5, 0.25, 0.0625, 0.015625, 0.00390625]
 
     # Load train data and other files
-    idx_train = np.load(os.path.join(base_dir, "idx_train.npy"))
-    X_num_train = np.load(os.path.join(base_dir, "X_num_train.npy"))
-    y_train = np.load(os.path.join(base_dir, "y_train.npy"))
+    input_data_path = os.path.join(base_dir, "npy", "Fold1")
+    idx_train = np.load(os.path.join(input_data_path, "idx_train.npy"))
+    X_num_train = np.load(os.path.join(input_data_path, "X_num_train.npy"))
+    y_train = np.load(os.path.join(input_data_path, "y_train.npy"))
 
-    with open(os.path.join(base_dir, "info.json"), "r") as f:
+    with open(os.path.join(input_data_path, "info.json"), "r") as f:
         info = json.load(f)
     
-    create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, info)
+    create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path, info)
