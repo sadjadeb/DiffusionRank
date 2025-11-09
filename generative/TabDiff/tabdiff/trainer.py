@@ -465,24 +465,19 @@ class Trainer:
     def test_impute(self, impute_condition, imputed_sample_save_dir):
         self.diffusion.eval()
         
-        info = self.metrics.info
-        task_type = info['task_type']
-        d_numerical, categories = self.dataset.d_numerical, self.dataset.categories
+        task_type = "binclass"
+        d_numerical, categories = self.d_numerical, self.categories
         num_mask_idx, cat_mask_idx = [], []
-        X_train = self.dataset.X
-        x_num_train, x_cat_train = X_train[:,:d_numerical], X_train[:,d_numerical:]
+        X_test = self.test_data.to(self.device)
+        x_num_test, x_cat_test = X_test[:, :d_numerical], X_test[:, d_numerical:].long()
         
         if task_type == 'binclass':    # for cat cols, push the masked col to [MASK]
             cat_mask_idx += [0]
         else:      # for num cols, set the masked col to the col mean
             num_mask_idx += [0]
-            avg = x_num_train[:, num_mask_idx].mean(0).to(self.device)
+            avg = x_num_test[:, num_mask_idx].mean(0).to(self.device)
         
-        with torch.no_grad():
-            X_test = self.test_dataset.X
-            X_test = X_test.to(self.device)
-            x_num_test, x_cat_test = X_test[:, :d_numerical], X_test[:, d_numerical:].long()
-            
+        with torch.no_grad():            
             # Apply mask to x_0
             if num_mask_idx:
                 x_num_test[:, num_mask_idx] = avg
@@ -493,18 +488,16 @@ class Trainer:
             syn_data = self.diffusion.sample_impute(x_num_test, x_cat_test, num_mask_idx, cat_mask_idx, impute_condition)
             print(f"Shape of the imputed sample = {syn_data.shape}")
             
-            y_pred_test = syn_data[:, info['target_col_idx'][0]]
-            
-            raw_test_data = pd.read_csv(os.path.join(self.raw_data_dir, 'test.csv'))
-            idx_test = raw_test_data[str(info['target_col_idx'][0] + 1)].values
-            y_true_test = raw_test_data[str(info['target_col_idx'][0])].values
+            label_column_idx = self.d_numerical
+            y_pred_test = syn_data[:, label_column_idx]
+            y_true_test = self.test_data[:, label_column_idx]
             
             # Save results
             os.makedirs(imputed_sample_save_dir, exist_ok=True)
             results_save_path = os.path.join(imputed_sample_save_dir, 'impute_output.txt')
             with open(results_save_path, 'w') as f:
                 f.write('qid true_label pred_label\n')
-                for qid, true_label, pred_label in zip(idx_test, y_true_test, y_pred_test):
+                for qid, true_label, pred_label in zip(self.idx_test, y_true_test, y_pred_test):
                     f.write(f'{qid} {true_label} {pred_label}\n')
             print(f"Results saved to {results_save_path}")
 
