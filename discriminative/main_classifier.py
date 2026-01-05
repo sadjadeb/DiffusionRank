@@ -103,7 +103,7 @@ test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
 # Create model, optimizer, and loss function
-net = DNN(input_dim=features_count, num_hidden_layers=4, num_hidden_nodes=num_hidden_nodes, approach='classifier', dropout_rate=dropout_rate).to(device)
+net = DNN(input_dim=features_count, approach='pointwise_classifier', num_hidden_nodes=num_hidden_nodes, dropout_rate=dropout_rate).to(device)
 optimizer = optim.AdamW(net.parameters(), lr=learning_rate)
 criterion = nn.CrossEntropyLoss()
 
