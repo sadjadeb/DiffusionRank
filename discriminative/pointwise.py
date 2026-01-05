@@ -15,8 +15,8 @@ seed = 42
 set_all_seeds(seed)
 
 # get k from command line arguments
-parser = argparse.ArgumentParser(description='Run LTR Classifier Experiment')
-parser.add_argument('--dataset', type=str, choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment')
+parser = argparse.ArgumentParser(description='Train and test a pointwise neural network for Learning-to-Rank tasks')
+parser.add_argument('--dataset', type=str, required=True, choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment (required)')
 parser.add_argument('--task', type=str, choices=['train', 'test'], help='Task to run: train or test') 
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
 parser.add_argument('--no_wandb', action='store_true', help='Disable Weights & Biases logging')
@@ -104,7 +104,7 @@ test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
 # Create model, optimizer, and loss function
-net = DNN(input_dim=features_count, approach='pointwise_classifier', num_hidden_nodes=num_hidden_nodes, dropout_rate=dropout_rate).to(device)
+net = DNN(input_dim=features_count, approach='pointwise', num_hidden_nodes=num_hidden_nodes, dropout_rate=dropout_rate).to(device)
 optimizer = optim.AdamW(net.parameters(), lr=learning_rate)
 criterion = nn.CrossEntropyLoss()
 
@@ -121,9 +121,9 @@ if args.checkpoint:
 def train(net):
     net.train()
     train_loss = 0.0
-    e_size = 0
+    num_batches = 0
+    
     for features, labels in train_reader_iter:
-        e_size += 1
         out = net(features)
         loss = criterion(out, labels)
         
@@ -131,8 +131,9 @@ def train(net):
         loss.backward()
         optimizer.step()
         train_loss += loss.item()
+        num_batches += 1
     
-    return train_loss / e_size
+    return train_loss / num_batches
 
 
 def test(net, data_iter):
