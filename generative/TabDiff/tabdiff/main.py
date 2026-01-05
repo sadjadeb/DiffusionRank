@@ -128,20 +128,21 @@ def main(args):
     X_train = np.load(os.path.join(data_dir, 'X_num_train.npy'))
     y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
     X_train_unlabeled = np.load(os.path.join(data_dir, 'X_num_train_non.npy'))
-    # Replace all labels greater than 1 with 1
-    y_train[y_train > 1] = 1
 
     X_val = np.load(os.path.join(data_dir, 'X_num_val.npy'))
     y_val = np.load(os.path.join(data_dir, 'y_val.npy'))
     idx_val = np.load(os.path.join(data_dir, 'idx_val.npy'))
-    # Replace all labels greater than 1 with 1
-    y_val[y_val > 1] = 1
 
     X_test = np.load(os.path.join(data_dir, 'X_num_test.npy'))
     y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
     idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
-    # Replace all labels greater than 1 with 1
-    y_test[y_test > 1] = 1
+
+    # Binarize labels
+    threshold_of_neg = 1 if 'MSLR' in dataset else 0
+    y_train[y_train <= threshold_of_neg], y_train[y_train > threshold_of_neg] = 0, 1
+    y_val[y_val <= threshold_of_neg], y_val[y_val > threshold_of_neg] = 0, 1
+    y_test[y_test <= threshold_of_neg], y_test[y_test > threshold_of_neg] = 0, 1
+
 
     # Apply QuantileTransformer
     normalizer = QuantileTransformer(
