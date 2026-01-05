@@ -6,7 +6,6 @@ import torch.optim as optim
 import wandb
 from utils import set_all_seeds, calculate_metrics
 from model import DNN
-from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import QuantileTransformer
 from copy import deepcopy
 import argparse
@@ -22,8 +21,8 @@ parser.add_argument('--task', type=str, choices=['train', 'test'], help='Task to
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
 parser.add_argument('--no_wandb', action='store_true', help='Disable Weights & Biases logging')
 parser.add_argument('--checkpoint', type=str, default=None, help='Path to the model checkpoint to load')
-parser.add_argument('--save_best_by', type=str, default='loss', choices=['ndcg', 'loss'], help='Criterion to save the best model by')
-parser.add_argument('--num_hidden_nodes', type=int, help='Number of hidden nodes in the model')
+parser.add_argument('--save_best_by', type=str, default='ndcg', choices=['ndcg', 'loss'], help='Criterion to save the best model by')
+parser.add_argument('--num_hidden_nodes', type=int, required=True, help='Number of hidden nodes in the model')
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -45,8 +44,8 @@ learning_rate = 5e-6
 num_hidden_nodes = args.num_hidden_nodes
 batch_size = 4096
 
-wandb.init(project=f"ltr_npy_{dataset}_classifier", 
-           name=f"exp_k{k}", 
+wandb.init(project=f"DiffusionRank_{dataset}", 
+           name=f"disc_k{k}", 
            mode='disabled' if args.no_wandb else 'online')
 wandb.config.update({
     'features_count': features_count,
@@ -56,6 +55,8 @@ wandb.config.update({
     'learning_rate': learning_rate,
     'num_hidden_nodes': num_hidden_nodes,
     'batch_size': batch_size,
+    'k': k,
+    'save_best_by': args.save_best_by,
 })
 
 # Set data paths
@@ -107,6 +108,10 @@ net = DNN(input_dim=features_count, approach='pointwise_classifier', num_hidden_
 optimizer = optim.AdamW(net.parameters(), lr=learning_rate)
 criterion = nn.CrossEntropyLoss()
 
+# print number of parameters
+num_params = sum(p.numel() for p in net.parameters())
+print(f"Number of model parameters: {num_params}")
+
 if args.checkpoint:
     checkpoint = torch.load(args.checkpoint, map_location=device)
     net.load_state_dict(checkpoint)
@@ -132,11 +137,11 @@ def train(net):
 
 def test(net, data_iter):
     net.eval()
+    results = {}
+    avg_loss = 0.0
+    num_batches = 0
+    
     with torch.no_grad():
-        results = {}
-        val_loss = 0.0
-        val_acc = 0.0
-        val_size = 0
         for features, labels, qids in data_iter:
             raw_logits = net(features).data.cpu()
             
@@ -144,80 +149,88 @@ def test(net, data_iter):
             logits = raw_logits - torch.logsumexp(raw_logits, dim=1, keepdim=True)
 
             loss = criterion(logits, labels)
-            val_loss += loss.item()
-            val_size += 1
+            avg_loss += loss.item()
+            num_batches += 1
 
-            _, preds = torch.max(logits, 1)
-            acc = accuracy_score(labels.numpy(), preds.numpy())
-            val_acc += acc
-            
             row_cnt = len(qids)
             for i in range(row_cnt):
                 qid = qids[i].item()
                 if qid not in results:
                     results[qid] = []
                 results[qid].append((labels[i], logits[i][1]))
-        val_loss /= val_size
-        val_acc /= val_size
-
-        avgndcg, avgp = calculate_metrics(results)
         
-        return avgp, avgndcg, val_loss, val_acc, results
+        avg_loss /= num_batches
+
+        avg_ndcg, avg_p = calculate_metrics(results)
+        
+        return {
+            'p': avg_p,
+            'ndcg': avg_ndcg,
+            'loss': avg_loss,
+            'results': results
+        }
+
 
 
 if __name__ == '__main__':
-    print('Dataset: {}'.format(dataset))
-    print('Number of learnable parameters: {}'.format(net.parameter_count()))
+    print(f'Dataset: {dataset}')
+    print(f'Number of learnable parameters: {net.parameter_count()}')
     
     if args.task == 'train':
-        print('Training the model...')
-        avgp, avgndcg, val_loss, val_acc, _ = test(net, val_reader_iter)
-        print(f'epoch: 0, train_loss: None, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
-        wandb.log({'train_loss': None, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
+        print('Start training the model...')
         
         best_val_loss = float('inf')
         best_ndcg = float('-inf')
         best_model_state = None
-        for epoch in range(num_epochs):
-            train_loss = train(net)
+        for epoch in range(num_epochs+1):
+            # Train (skip actual training on epoch 0 for baseline)
+            train_loss = train(net) if epoch > 0 else None
             
-            avgp, avgndcg, val_loss, val_acc, _ = test(net, val_reader_iter)
-            print(f'epoch:{epoch+1}, train_loss: {train_loss}, val_loss: {val_loss}, p: {avgp}, ndcg: {avgndcg}, acc: {val_acc}')
-            wandb.log({'train_loss': train_loss, 'avgndcg': avgndcg, 'avgp': avgp, 'val_loss': val_loss, 'val_acc': val_acc})
+            # Evaluate on validation and test sets
+            val_metrics = test(net, val_reader_iter)
+            test_metrics = test(net, test_reader_iter)
+            print(f'epoch: {epoch}, train_loss: {train_loss}, val_loss: {val_metrics["loss"]}, val_p: {val_metrics["p"]}, val_ndcg: {val_metrics["ndcg"]}, test_loss: {test_metrics["loss"]}, test_p: {test_metrics["p"]}, test_ndcg: {test_metrics["ndcg"]}')
+            wandb.log({'train_d_loss': train_loss,
+                       'val_ndcg': val_metrics["ndcg"],
+                       'val_p': val_metrics["p"],
+                       'val_d_loss': val_metrics["loss"],
+                       'test_ndcg': test_metrics["ndcg"],
+                       'test_p': test_metrics["p"],
+                       'test_d_loss': test_metrics["loss"],})
             
-            # Save best model
+            # Track Best Model
             if args.save_best_by == 'loss':
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
+                if val_metrics["loss"] < best_val_loss:
+                    best_val_loss = val_metrics["loss"]
                     best_model_state = deepcopy(net.state_dict())
             elif args.save_best_by == 'ndcg':
-                if avgndcg > best_ndcg:
-                    best_ndcg = avgndcg
+                if val_metrics["ndcg"] > best_ndcg:
+                    best_ndcg = val_metrics["ndcg"]
                     best_model_state = deepcopy(net.state_dict())
             else:
                 raise ValueError(f"Unknown save_best_by criterion: {args.save_best_by}")
 
-        final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.final.pt')
-        best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.best.pt')
-            
+        final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.k{k}.final.pt')
+        best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.k{k}.best.pt')
+
         # Save model
         torch.save(net.state_dict(), final_model_save_path)
-        print('Final model saved to {}'.format(final_model_save_path))
+        print(f'Final model saved to {final_model_save_path}')
 
         # Load best model before saving
         net.load_state_dict(best_model_state)
         torch.save(net.state_dict(), best_model_save_path)
-        print('Best model saved to {}'.format(best_model_save_path))
+        print(f'Best model saved to {best_model_save_path}')
     
-    print('Evaluating on test set...')
-    avgp, avgndcg, test_loss, test_acc, test_results = test(net, test_reader_iter)
-    print(f'Test Loss: {test_loss}, Test P: {avgp}, Test NDCG: {avgndcg}, Test Acc: {test_acc}')
+    print('Evaluating the best model on test set...')
+    test_metrics = test(net, test_reader_iter)
+    print(f'Best Model Performance: test_loss: {test_metrics["loss"]}, test_p: {test_metrics["p"]}, test_ndcg: {test_metrics["ndcg"]}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.classifier.best.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.classifier.k{k}.best.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
-        for qid, values in test_results.items():
+        for qid, values in test_metrics["results"].items():
             for true_label, pred_label in values:
                 f.write(f'{qid} {true_label} {pred_label}\n')
     print('Results saved to {}'.format(results_save_path))
