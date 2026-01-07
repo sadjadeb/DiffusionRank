@@ -26,13 +26,13 @@ def main(args):
     torch.set_printoptions(sci_mode=False)
 
     ## Get data info
-    dataname = args.dataname
+    dataset = args.dataname
     k = args.k if args.k else 1.0
     d_numerical = 136 if 'MSLR' in dataname else 46
     categories = np.array([2])
     
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-    data_dir = os.path.join(project_root, 'data', dataname, 'by_fraction', 'Fold1', f'k{k}')
+    data_dir = os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}')
 
     ## Set experiment name
     exp_name = args.exp_name
@@ -68,7 +68,7 @@ def main(args):
         num_samples_to_generate = args.num_samples_to_generate
         ckpt_path = args.ckpt_path
         if ckpt_path is None:
-            ckpt_parent_path = f"{curr_dir}/ckpt/{dataname}/{exp_name}"
+            ckpt_parent_path = f"{curr_dir}/ckpt/{dataset}/{exp_name}"
             ckpt_path_arr = glob.glob(f"{ckpt_parent_path}/best_model*")
             assert ckpt_path_arr, f"Cannot not infer ckpt_path from {ckpt_parent_path}, please make sure that you first train a model before testing!"
             ckpt_path = ckpt_path_arr[0]
@@ -83,11 +83,11 @@ def main(args):
     ## Creat model_save and result paths
     model_save_path, result_save_path = None, None
     if args.mode == 'train':
-        model_save_path = 'debug/ckpt' if args.debug else f'{curr_dir}/ckpt/{dataname}/{exp_name}'
+        model_save_path = 'debug/ckpt' if args.debug else f'{curr_dir}/ckpt/{dataset}/{exp_name}'
         result_save_path = model_save_path.replace('ckpt', 'result')  #i.e., f'{curr_dir}/results/{dataname}/{exp_name}'
     elif args.mode == 'test':
         if args.report:
-            result_save_path = f"eval/report_runs/{exp_name}/{dataname}"
+            result_save_path = f"eval/report_runs/{exp_name}/{dataset}"
         else:
             result_save_path = os.path.dirname(ckpt_path).replace('ckpt', 'result')    # infer the exp_name from the ckpt_name
     raw_config['model_save_path'] = model_save_path
@@ -200,7 +200,7 @@ def main(args):
     print(f"The config of the current run is : \n {printed_configs}")
     
     ## Enable Wandb
-    project_name = f"tabdiff_{dataname}"
+    project_name = f"DiffusionRank_{dataset}"
     raw_config['project_name'] = project_name
     logger = wandb.init(
         project=raw_config['project_name'], 
@@ -237,7 +237,7 @@ def main(args):
     )
     if args.mode == 'test':
         if args.impute:
-            imputed_sample_save_dir = f"impute/{dataname}/{exp_name}"
+            imputed_sample_save_dir = f"impute/{dataset}/{exp_name}"
             trainer.test_impute(
                 args.impute_condition, 
                 imputed_sample_save_dir,
