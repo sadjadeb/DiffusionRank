@@ -117,10 +117,10 @@ def evaluate_lgb(model, X, true_labels, qids):
         results[qid].append((y_true, y_pred))
 
     avgndcg, avgp = calculate_metrics(results)
-    return avgp, avgndcg, results
+    return avgndcg, avgp, results
 
 print('Evaluating on test set...')
-avgp, avgndcg, test_results = evaluate_lgb(model, X_test, y_test, idx_test)
+avgndcg, avgp, test_results = evaluate_lgb(model, X_test, y_test, idx_test)
 print(f'Test NDCG: {avgndcg:.6f}, Test P: {avgp:.6f}')
 print(f'{avgndcg:.6f} {avgp:.6f}')
 

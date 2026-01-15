@@ -93,7 +93,7 @@ def evaluate_xgb(model, X, true_labels, qids):
     return avgndcg, avgp, results
 
 print('Evaluating on test set...')
-avgp, avgndcg, test_results = evaluate_xgb(model, X_test, y_test, idx_test)
+avgndcg, avgp, test_results = evaluate_xgb(model, X_test, y_test, idx_test)
 print(f'Test NDCG: {avgndcg:.6f}, Test P: {avgp:.6f}')
 print(f'{avgndcg:.6f} {avgp:.6f}')
 
