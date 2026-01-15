@@ -1,25 +1,21 @@
 # General files and directories by pattern
 /.venv
 /.idea
+/.vscode
+
+# Data and output directories
 /data
 **/data
 **/output
-**/experiments
 **/checkpoints
 **/predictions
 **/**/experiments
-**/**/*.pt
-**/**/*.pth
 **/**/wandb
-/__pycache__
-**/__pycache__
-**/**/__pycache__
+**__pycache__
 **slurm-*
 
 # Specific files and directories
-environment.yml
-/automated_run_scripts
-generative/pt_experiments
+/slurm_run_scripts
 
 # TabDiff specific
 generative/TabDiff/synthetic/
