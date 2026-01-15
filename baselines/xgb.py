@@ -43,8 +43,6 @@ idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
 # Binarize labels
 threshold_of_neg = 1 if 'MSLR' in dataset else 0
 y_train[y_train <= threshold_of_neg], y_train[y_train > threshold_of_neg] = 0, 1
-y_val[y_val <= threshold_of_neg], y_val[y_val > threshold_of_neg] = 0, 1
-y_test[y_test <= threshold_of_neg], y_test[y_test > threshold_of_neg] = 0, 1
 
 # Normalize
 if data_normalization == 'quantile':

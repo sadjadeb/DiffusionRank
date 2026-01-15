@@ -79,9 +79,12 @@ idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
 
 # Binarize labels
 threshold_of_neg = 1 if 'MSLR' in dataset else 0
-y_train[y_train <= threshold_of_neg], y_train[y_train > threshold_of_neg] = 0, 1
-y_val[y_val <= threshold_of_neg], y_val[y_val > threshold_of_neg] = 0, 1
-y_test[y_test <= threshold_of_neg], y_test[y_test > threshold_of_neg] = 0, 1
+bin_y_train = np.empty_like(y_train)
+bin_y_val = np.empty_like(y_val)
+bin_y_test = np.empty_like(y_test)
+bin_y_train[y_train <= threshold_of_neg], bin_y_train[y_train > threshold_of_neg] = 0, 1
+bin_y_val[y_val <= threshold_of_neg], bin_y_val[y_val > threshold_of_neg] = 0, 1
+bin_y_test[y_test <= threshold_of_neg], bin_y_test[y_test > threshold_of_neg] = 0, 1
 
 # Normalize the data
 if data_normalization == 'quantile':
@@ -96,13 +99,13 @@ if data_normalization == 'quantile':
     X_test = normalizer.transform(X_test)
 
 # Create a dataloader for the training data using pytorch
-train_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float().to(device), torch.from_numpy(y_train).long().to(device))
+train_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float().to(device), torch.from_numpy(bin_y_train).long().to(device))
 train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
 # Create a dataloader for the validation data using pytorch
-val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(idx_val).long())
+val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(bin_y_val).long(), torch.from_numpy(idx_val).long())
 val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
 # Create a dataloader for the test data using pytorch
-test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).long(), torch.from_numpy(idx_test).long())
+test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).long(), torch.from_numpy(bin_y_test).long(), torch.from_numpy(idx_test).long())
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
 # Create model, optimizer, and loss function
@@ -145,13 +148,13 @@ def test(net, data_iter):
     num_batches = 0
     
     with torch.no_grad():
-        for features, labels, qids in data_iter:
+        for features, labels, bin_labels, qids in data_iter:
             raw_logits = net(features).data.cpu()
             
             # Take log softmax on the unnormalized probabilities to the logits
             logits = raw_logits - torch.logsumexp(raw_logits, dim=1, keepdim=True)
 
-            loss = criterion(logits, labels)
+            loss = criterion(logits, bin_labels)
             avg_loss += loss.item()
             num_batches += 1
 
