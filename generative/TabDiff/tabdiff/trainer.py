@@ -315,6 +315,9 @@ class Trainer:
             elif self.closs_weight_schedule == "anneal":
                 frac_done = epoch / self.steps
                 closs_weight = self.c_lambda * (1 - frac_done)
+            elif self.closs_weight_schedule == "ramp_up":
+                frac_done = epoch / self.steps
+                closs_weight = self.c_lambda * frac_done
             elif self.closs_weight_schedule == "half_cutoff":
                 frac_done = epoch / self.steps
                 closs_weight = self.c_lambda if frac_done < 0.5 else 0.0
