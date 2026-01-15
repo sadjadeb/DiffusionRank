@@ -471,35 +471,7 @@ class Trainer:
                     'cat_schedule': self.diffusion.cat_schedule.state_dict(),
                     'optimizer': self.optimizer.state_dict(),
                 }
-                torch.save(state_dicts, os.path.join(self.model_save_path, f'best_model_{np.round(val_loss,4)}_{epoch+1}.pt'))
-                patience = 0
-            else:
-                patience += 1   # increment patience if best loss is not surpassed
-            
-            # Compute and log EMA model loss
-            curr_model, curr_num_schedule, curr_cat_schedule = self.to_ema_model()
-            ema_mloss, ema_gloss = self.compute_loss(self.train_iter)
-            self.to_model(curr_model, curr_num_schedule, curr_cat_schedule)
-            ema_total_loss = ema_mloss + ema_gloss
-            ema_loss_dict = {
-                "ema_loss/c_loss": ema_gloss,
-                "ema_loss/d_loss": ema_mloss,
-                "ema_loss/total_loss": ema_total_loss
-            }
-            
-            # Save the best ema ckpt
-            if ema_total_loss < best_ema_loss and self.curr_epoch > 4000:
-                best_ema_loss = ema_total_loss
-                to_remove = glob.glob(os.path.join(self.model_save_path, f"best_ema_model_*"))
-                if to_remove:
-                    os.remove(to_remove[0])
-                state_dicts = {
-                    'denoise_fn': self.ema_model.state_dict(), 
-                    'num_schedule':self.ema_num_schedule.state_dict(), 
-                    'cat_schedule': self.ema_cat_schedule.state_dict(),
-                }
-                torch.save(state_dicts, os.path.join(self.model_save_path, f'best_ema_model_{np.round(ema_total_loss,4)}_{epoch+1}.pt'))
-            
+                torch.save(state_dicts, os.path.join(self.model_save_path, f'best_model_{np.round(val_ndcg,4)}_{epoch+1}.pt'))
             
             # Submit logs
             self.logger.log(log_dict)
