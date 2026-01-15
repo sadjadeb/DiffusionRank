@@ -3,7 +3,7 @@ dequant_dist = "none"
 int_dequant_factor = 0
 
 [unimodmlp_params]
-num_layers = 2
+num_layers = 4
 d_token = 4
 n_head = 1
 factor = 32
@@ -18,8 +18,8 @@ cat_scheduler='log_linear'        # 'log_linear', 'log_linear_unified', 'log_lin
 noise_dist='uniform_t'       #'uniform_t' or 'log_norm'
 
 [diffusion_params.sampler_params]
-stochastic_sampler = true
-second_order_correction = true
+stochastic_sampler = false
+second_order_correction = false
 
 [diffusion_params.edm_params]
 precond = true
@@ -42,14 +42,11 @@ k_init=-6.0
 k_offset=1.0
 
 [train.main]
-steps = 8000
-lr = 0.001
 weight_decay = 0
 ema_decay = 0.997
-batch_size = 4096
 check_val_every = 2000
-lr_scheduler = "reduce_lr_on_plateau"
-factor = 0.90           # hyperparam for reduce_lr_on_plateau
+lr_scheduler = "fixed"
+factor = 0.90                  # hyperparam for reduce_lr_on_plateau
 reduce_lr_patience = 50        # hyperparam for reduce_lr_on_plateau
 closs_weight_schedule = "anneal"
 c_lambda = 1.0
