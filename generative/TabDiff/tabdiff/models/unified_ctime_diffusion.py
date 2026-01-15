@@ -95,14 +95,13 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
 
         x_num = x[:, :self.num_numerical_features]
         x_cat = x[:, self.num_numerical_features:].long()
+
         # Sample noise level
-        if self.noise_dist == "uniform_t":
-            t = torch.rand(b, device=device, dtype=x_num.dtype)
-            t = t[:, None]
-            sigma_num = self.num_schedule.total_noise(t)
-            sigma_cat = self.cat_schedule.total_noise(t)
-            dsigma_cat = self.cat_schedule.rate_noise(t)
-            
+        t = torch.rand(b, device=device, dtype=x_num.dtype)
+        t = t[:, None]
+        sigma_num = self.num_schedule.total_noise(t)
+        sigma_cat = self.cat_schedule.total_noise(t)
+        
         # Convert sigma_cat to the corresponding alpha and move_chance
         alpha = torch.exp(-sigma_cat)
         move_chance = 1 - alpha
@@ -121,7 +120,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             strategy = 'soft' if is_learnable else 'hard'
             x_cat_t, x_cat_t_soft = self.q_xt(x_cat, move_chance, strategy=strategy)
 
-        # Predict orignal data (distribution)
+        # Predict original data (distribution)
         model_out_num, model_out_cat = self._denoise_fn(   
             x_num_t, x_cat_t_soft,
             t.squeeze(), sigma=sigma_num
@@ -150,7 +149,6 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         # Sample noise level
         t = torch.rand(b, device=device, dtype=x_num_i.dtype)
         t = t[:, None]
-        # t = torch.zeros_like(t) # for reproducing discriminative results only
         sigma_num = self.num_schedule.total_noise(t)
         sigma_cat = self.cat_schedule.total_noise(t)
         
@@ -158,12 +156,9 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         alpha = torch.exp(-sigma_cat)
         move_chance = 1 - alpha
         
-        # move_chance = torch.ones_like(move_chance) # for reproducing discriminative results only
-        
         # Continuous forward diff
         x_num_i_t = x_num_i
         x_num_j_t = x_num_j
-        # Comment out the following lines to disable noise addition to the numerical features
         if x_num_i.shape[1] > 0:
             noise_i = torch.randn_like(x_num_i)
             noise_j = torch.randn_like(x_num_j)
@@ -301,29 +296,37 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             diffusion_model_input_length), input. 
         move_chance: float torch.Tensor with shape (batch_size, 1).
         """
-        if strategy == 'hard':
-            move_indices = torch.rand(*x.shape, device=x.device) < move_chance
-            xt = torch.where(move_indices, self.mask_index, x)
-            xt_soft = self.to_one_hot(xt).to(move_chance.dtype)
-            return xt, xt_soft
-        elif strategy == 'soft':
-            bs = x.shape[0]
-            xt_soft = torch.zeros(bs, torch.sum(self.mask_index+1), device=x.device)
-            xt = torch.zeros_like(x)
-            for i in range(len(self.num_classes)):
-                slice_i = self.slices_for_classes_with_mask[i]
-                # set the bernoulli probabilities, which determines the "coin flip" transition to the mask class
-                prob_i = torch.zeros(bs, 2, device=x.device)
-                prob_i[:,0] = 1-move_chance[:,i]
-                prob_i[:,-1] = move_chance[:,i]
-                log_prob_i = torch.log(prob_i)
-                # draw soft samples and place them back to the corresponding columns
-                soft_sample_i = F.gumbel_softmax(log_prob_i, tau=0.01, hard=True)
-                idx = torch.stack((x[:,i]+slice_i[0], torch.ones_like(x[:,i])*slice_i[-1]), dim=-1)
-                xt_soft[torch.arange(len(idx)).unsqueeze(1), idx] = soft_sample_i
-                # retrieve the hard samples
-                xt[:, i] = torch.where(soft_sample_i[:,1] > soft_sample_i[:,0], self.mask_index[i], x[:,i])
-            return xt, xt_soft
+        move_indices = torch.rand(*x.shape, device=x.device) < move_chance
+        xt = torch.where(move_indices, self.mask_index, x)
+        xt_soft = self.to_one_hot(xt).to(move_chance.dtype)
+        return xt, xt_soft
+    
+    def q_xt_pairwise(self, x_i, x_j, move_chance, strategy='hard'):
+        """Computes the noisy samples for a pair (x_i, x_j).
+        
+        Both x_i and x_j will receive the same masking decision (either both masked or both not masked).
+        
+        Args:
+            x_i: int torch.Tensor with shape (batch_size, num_cat_features), higher-ranked doc labels
+            x_j: int torch.Tensor with shape (batch_size, num_cat_features), lower-ranked doc labels
+            move_chance: float torch.Tensor with shape (batch_size, 1).
+            
+        Returns:
+            x_t: mask indicator tensor (batch_size, 1), same for both pairs
+            x_i_t_soft: (batch_size, 2) where [:, 0] = x_i label, [:, 1] = x_t mask indicator
+            x_j_t_soft: (batch_size, 2) where [:, 0] = x_j label, [:, 1] = x_t mask indicator
+        """
+        move_indices = torch.rand(*x_i.shape, device=x_i.device) < move_chance
+        
+        x_t = torch.where(move_indices, 1, 0).float()    # mask indicator
+        
+        x_i_t = torch.where(move_indices, self.mask_index, x_i)
+        x_j_t = torch.where(move_indices, self.mask_index, x_j)
+        
+        x_i_t_soft = self.to_one_hot(x_i_t).to(move_chance.dtype)
+        x_j_t_soft = self.to_one_hot(x_j_t).to(move_chance.dtype)
+        
+        return x_t, x_i_t_soft, x_j_t_soft
     
     
     def _subs_parameterization(self, unormalized_prob, xt):
@@ -339,8 +342,8 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         unormalized_prob[:, range(unormalized_prob.shape[1]), self.mask_index] += self.neg_infinity
         
         # Take log softmax on the unnormalized probabilities to the logits
-        logits = unormalized_prob - torch.logsumexp(unormalized_prob, dim=-1,
-                                        keepdim=True)
+        logits = unormalized_prob - torch.logsumexp(unormalized_prob, dim=-1, keepdim=True)
+        
         # Apply updates directly in the logits matrix.
         # For the logits of the unmasked tokens, set all values
         # to -infinity except for the indices corresponding to
@@ -384,21 +387,16 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         )
         return x_cat_oh
     
-    def _absorbed_closs(self, model_output, x0, sigma, dsigma):
+    def _absorbed_closs(self, model_output, x0, sigma):
         """
             alpha: (bs,)
         """
         log_p_theta = torch.gather(model_output, -1, x0[:, :, None]).squeeze(-1)
         alpha = torch.exp(-sigma)
-        if self.cat_scheduler in ['log_linear_unified', 'log_linear_per_column']:
-            elbo_weight = - dsigma / torch.expm1(sigma)
-        else:
-            elbo_weight = -1/(1-alpha)
+
+        elbo_weight = -1/(1-alpha)
         
         loss = elbo_weight * log_p_theta
-        
-        # wo elbo_weight
-        # loss = -log_p_theta
         
         return loss
     
@@ -569,22 +567,9 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         sigma_cat_next = torch.zeros_like(sigma_cat_cur)
         sigma_cat_next[1:] = sigma_cat_cur[0:-1]
         
-        # Prepare sigma_hat for stochastic sampling mode
-        if self.sampler_params['stochastic_sampler']:
-            gamma = min(S_churn / self.num_timesteps, np.sqrt(2) - 1) * (S_min <= sigma_num_cur) * (sigma_num_cur <= S_max)
-            sigma_num_hat = sigma_num_cur + gamma * sigma_num_cur
-            t_hat = self.num_schedule.inverse_to_t(sigma_num_hat)
-            t_hat = torch.min(t_hat, dim=-1, keepdim=True).values    # take the samllest t_hat induced by sigma_num
-            zero_gamma = (gamma==0).any()
-            t_hat[zero_gamma] = t[zero_gamma]
-            out_of_bound = (t_hat > 1).squeeze()
-            sigma_num_hat[out_of_bound] = sigma_num_cur[out_of_bound]
-            t_hat[out_of_bound] = t[out_of_bound]
-            sigma_cat_hat = self.cat_schedule.total_noise(t_hat)
-        else:
-            t_hat = t
-            sigma_num_hat = sigma_num_cur
-            sigma_cat_hat = sigma_cat_cur
+        t_hat = t
+        sigma_num_hat = sigma_num_cur
+        sigma_cat_hat = sigma_cat_cur
 
         # Sample priors for the continuous dimensions
         if impute_condition == "x_t":
