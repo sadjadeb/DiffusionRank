@@ -391,9 +391,9 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         """
             alpha: (bs,)
         """
-        log_p_theta = torch.gather(model_output, -1, x0[:, :, None]).squeeze(-1)
-        alpha = torch.exp(-sigma)
+        log_p_theta = -torch.gather(model_output, -1, x0[:, :, None]).squeeze(-1)
 
+        alpha = torch.exp(-sigma)
         elbo_weight = -1/(1-alpha)
         
         loss = elbo_weight * log_p_theta
@@ -416,8 +416,8 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
         
         alpha = torch.exp(-sigma)
         elbo_weight = 1/(1-alpha)
-        loss = elbo_weight * loss
         
+        loss = elbo_weight * loss
         loss = loss * mask
             
         return loss

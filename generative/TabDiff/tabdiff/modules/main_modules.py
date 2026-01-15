@@ -1,15 +1,8 @@
-from typing import Callable, Union
-
 from tabdiff.modules.transformer import Reconstructor, Tokenizer, Transformer
 import torch
 import torch.nn as nn
 import torch.optim
 
-ModuleType = Union[str, Callable[..., nn.Module]]
-
-class SiLU(nn.Module):
-    def forward(self, x):
-        return x * torch.sigmoid(x)
 
 class PositionalEmbedding(torch.nn.Module):
     def __init__(self, num_channels, max_positions=10000, endpoint=False):
@@ -82,7 +75,8 @@ class OnlyMLPDiffusion(nn.Module):
         if timesteps.ndim == 1:
             timesteps = timesteps.view(-1, 1)  # [bs] -> [bs, 1]
         x = torch.cat([x, timesteps], dim=-1)  # [bs, d_in + 1]
-        return self.mlp(x)
+        out = self.mlp(x)
+        return out
 
 
 class UniModMLP(nn.Module):
