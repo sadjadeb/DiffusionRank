@@ -28,8 +28,12 @@ def main(args):
     ## Get data info
     dataset = args.dataname
     k = args.k if args.k else 1.0
-    d_numerical = 136 if 'MSLR' in dataname else 46
-    categories = np.array([2])
+    d_numerical = 136 if 'MSLR' in dataset else 46
+    
+    if args.approach == 'pointwise':
+        categories = np.array([2])
+    elif args.approach == 'pairwise':
+        categories = np.array([5]) if 'MSLR' in dataset else np.array([3])
     
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
     data_dir = os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}')
