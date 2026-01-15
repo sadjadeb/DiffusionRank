@@ -20,9 +20,11 @@ parser.add_argument('--dataset', type=str, required=True, choices=['MQ2007', 'MQ
 parser.add_argument('--task', type=str, choices=['train', 'test'], help='Task to run: train or test') 
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
 parser.add_argument('--no_wandb', action='store_true', help='Disable Weights & Biases logging')
+parser.add_argument('--exp_name', type=str, default=None, help='Experiment name for logging')
 parser.add_argument('--checkpoint', type=str, default=None, help='Path to the model checkpoint to load')
 parser.add_argument('--save_best_by', type=str, default='ndcg', choices=['ndcg', 'loss'], help='Criterion to save the best model by')
 parser.add_argument('--num_hidden_nodes', type=int, required=True, help='Number of hidden nodes in the model')
+parser.add_argument('--lr', type=float, default=5e-6, help='Learning rate for the optimizer')
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -37,15 +39,15 @@ if args.task == 'test':
 # Set hyperparameters
 device = torch.device("cuda:0")
 features_count = 136 if 'MSLR' in dataset else 46
-data_normalization = 'quantile'  # ['quantile', None]
-num_epochs = 5000
+data_normalization = 'quantile'
+num_epochs = 2000 if 'MSLR' in dataset else 5000
 dropout_rate = 0.1
-learning_rate = 5e-6
+learning_rate = args.lr
 num_hidden_nodes = args.num_hidden_nodes
 batch_size = 4096
 
 wandb.init(project=f"DiffusionRank_{dataset}", 
-           name=f"disc_k{k}", 
+           name=f"disc_pointwise_k{k}" + (f"_{args.exp_name}" if args.exp_name else ""), 
            mode='disabled' if args.no_wandb else 'online')
 wandb.config.update({
     'features_count': features_count,
@@ -211,8 +213,8 @@ if __name__ == '__main__':
             else:
                 raise ValueError(f"Unknown save_best_by criterion: {args.save_best_by}")
 
-        final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.k{k}.final.pt')
-        best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.classifier.k{k}.best.pt')
+        final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.pointwise.k{k}.{args.exp_name}.final.pt')
+        best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.pointwise.k{k}.{args.exp_name}.best.pt')
 
         # Save model
         torch.save(net.state_dict(), final_model_save_path)
@@ -228,7 +230,7 @@ if __name__ == '__main__':
     print(f'Best Model Performance: test_loss: {test_metrics["loss"]}, test_p: {test_metrics["p"]}, test_ndcg: {test_metrics["ndcg"]}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.classifier.k{k}.best.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.pointwise.k{k}.{args.exp_name}.best.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_metrics["results"].items():
