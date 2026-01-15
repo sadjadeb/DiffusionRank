@@ -107,6 +107,7 @@ class Trainer:
             self.diffusion._denoise_fn.load_state_dict(state_dicts['denoise_fn'])
             self.diffusion.num_schedule.load_state_dict(state_dicts['num_schedule'])
             self.diffusion.cat_schedule.load_state_dict(state_dicts['cat_schedule'])   
+            self.optimizer.load_state_dict(state_dicts['optimizer'])
             print(f"Weights are loaded from {self.ckpt_path}")     
         
         if self.ckpt_path is None or is_finetune:
@@ -462,6 +463,7 @@ class Trainer:
                     'denoise_fn': self.diffusion._denoise_fn.state_dict(), 
                     'num_schedule':self.diffusion.num_schedule.state_dict(), 
                     'cat_schedule': self.diffusion.cat_schedule.state_dict(),
+                    'optimizer': self.optimizer.state_dict(),
                 }
                 torch.save(state_dicts, os.path.join(self.model_save_path, f'best_model_{np.round(val_loss,4)}_{epoch+1}.pt'))
                 patience = 0
