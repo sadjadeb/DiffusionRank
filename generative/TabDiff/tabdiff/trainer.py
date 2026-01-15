@@ -9,6 +9,7 @@ import json
 from utils import calculate_metrics
 from copy import deepcopy
 import math
+import random
 from utils_train import update_ema
 
 from tqdm import tqdm
@@ -42,6 +43,8 @@ class Trainer:
             bell_mu=None,
             bell_sigma=None,
             bell_peak=None,
+            approach='pointwise',
+            train_data_by_qid=None,
             **kwargs
     ):
         self.diffusion = diffusion
@@ -56,7 +59,14 @@ class Trainer:
             param.detach_()
 
         self.train_data = train_data
-        self.train_iter = DataLoader(train_data, batch_size=batch_size, shuffle=False)
+        self.approach = approach
+        self.train_data_by_qid = train_data_by_qid
+        if approach == 'pairwise' and train_data_by_qid is not None:
+            # For pairwise, we'll generate pairs dynamically during training
+            self.train_iter = None  # Will be generated on-the-fly
+        else:
+            self.train_iter = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+        # self.train_iter = DataLoader(train_data, batch_size=int(k * batch_size), shuffle=True)
         self.val_iter = DataLoader(val_data, batch_size=batch_size, shuffle=False)
         self.val_data = val_data
         self.idx_val = idx_val
@@ -109,6 +119,60 @@ class Trainer:
         lr = self.init_lr * (1 - frac_done)
         for param_group in self.optimizer.param_groups:
             param_group["lr"] = lr
+    
+    def _generate_pairs(self, batch_size):
+        """
+        Generate pairs of documents for pairwise training from the same query.
+        For each pair, the first document should have a higher label than the second.
+        Pairs with equal labels are skipped as they provide no learning signal.
+        
+        Returns:
+            pairs_i: tensor of higher-ranked documents [batch_size, features]
+            pairs_j: tensor of lower-ranked documents [batch_size, features]
+        """
+        pairs_i = []
+        pairs_j = []
+        
+        if self.train_data_by_qid is None:
+            raise ValueError("train_data_by_qid must be provided for pairwise training")
+        
+        # Sample pairs from the same query
+        qids = list(self.train_data_by_qid.keys())
+        attempts = 0
+        max_attempts = batch_size * 10  # Prevent infinite loop
+        
+        while len(pairs_i) < batch_size and attempts < max_attempts:
+            attempts += 1
+            qid = random.choice(qids)
+            query_data = self.train_data_by_qid[qid]
+            n_docs = len(query_data['labels'])
+            
+            # Need at least 2 documents to form a pair
+            if n_docs < 2:
+                continue
+            
+            # Sample two different documents
+            idx_i, idx_j = random.sample(range(n_docs), 2)
+            label_i = query_data['labels'][idx_i]
+            label_j = query_data['labels'][idx_j]
+            
+            # Skip pairs with equal labels (no preference to learn)
+            if label_i == label_j:
+                continue
+            
+            # Ensure document i has higher label than document j
+            if label_i < label_j:
+                idx_i, idx_j = idx_j, idx_i
+            
+            pairs_i.append(query_data['features'][idx_i])
+            pairs_j.append(query_data['features'][idx_j])
+        
+        # Convert to tensors
+        pairs_i_tensor = torch.from_numpy(np.array(pairs_i)).float().to(self.device)
+        pairs_j_tensor = torch.from_numpy(np.array(pairs_j)).float().to(self.device)
+        
+        return pairs_i_tensor, pairs_j_tensor
+
 
     def _run_step(self, x, closs_weight, dloss_weight):
         x = x.to(self.device)
@@ -128,6 +192,33 @@ class Trainer:
         loss.backward()
         self.optimizer.step()
 
+        return dloss, closs
+    
+    def _run_step_pairwise(self, x_i, x_j, closs_weight, dloss_weight):
+        """
+        Pairwise training step using RankNet loss on the categorical label prediction.
+        x_i: higher-ranked documents [batch_size, d_numerical + 1] (features + label)
+        x_j: lower-ranked documents [batch_size, d_numerical + 1] (features + label)
+        """
+        x_i = x_i.to(self.device)
+        x_j = x_j.to(self.device)
+        
+        self.diffusion.train()
+        self.optimizer.zero_grad()
+        
+        dloss, closs = self.diffusion.mixed_loss_pairwise(x_i, x_j)
+        
+        # Combined loss
+        if closs_weight == 0.0:
+            loss = dloss_weight * dloss + closs_weight * closs.detach()
+        elif dloss_weight == 0.0:
+            loss = dloss_weight * dloss.detach() + closs_weight * closs
+        else:
+            loss = dloss_weight * dloss + closs_weight * closs
+        
+        loss.backward()
+        self.optimizer.step()
+        
         return dloss, closs
     
     def compute_loss(self, data_iter):
@@ -151,14 +242,42 @@ class Trainer:
         default_num_timesteps = self.diffusion.num_timesteps
         self.diffusion.num_timesteps = 1
         
-        num_mask_idx, cat_mask_idx = [], [0]
-        x_num, x_cat = data[:, :self.d_numerical].to(self.device), data[:, self.d_numerical:].long().to(self.device)
-        x_cat[:, cat_mask_idx] = torch.tensor(self.categories, dtype=x_cat.dtype, device=x_cat.device)[cat_mask_idx]
-        syn_data = self.diffusion.sample_impute(x_num, x_cat, num_mask_idx, cat_mask_idx, 'x_0')
-        
-        label_column_idx = self.d_numerical
-        y_pred = syn_data[:, label_column_idx].detach().numpy()
+        x_num = data[:, :self.d_numerical].to(self.device)
+        x_cat = data[:, self.d_numerical:].long().to(self.device)
         y_true = data[:, self.d_numerical:].squeeze().cpu().numpy()
+        
+        if self.approach == 'pairwise':
+            # For pairwise, get raw logits from model as ranking scores
+            # Use minimal noise to get clean predictions
+            self.diffusion.eval()
+            with torch.no_grad():
+                b = x_num.shape[0]
+                t = torch.zeros(b, device=self.device)  # t=0 for clean prediction
+                sigma_num = self.diffusion.num_schedule.total_noise(t[:, None])
+                
+                # Create pairs of [0., 0., 1.0] as one-hot encoding for categorical input
+                # It means the input is always masked
+                x_cat_onehot = torch.zeros(b, self.categories[0]+1, device=self.device)
+                x_cat_onehot[:, self.categories[0]] = 1.0
+                
+                # Get model predictions
+                _, pred_cat = self.diffusion._denoise_fn(x_num, x_cat_onehot, t, sigma=sigma_num)
+                
+                # Use negated class_0 logit as ranking score (same as training)
+                # Higher score = more likely to be label=1
+                y_pred = pred_cat[:, 0].cpu().numpy()
+        else:
+            # For pointwise, use sample_impute for discrete prediction
+            num_mask_idx, cat_mask_idx = [], [0]
+            
+            # Set the label column to mask value
+            mask_value = self.categories[0] if len(self.categories) > 0 else 2
+            x_cat[:, cat_mask_idx] = mask_value
+            
+            syn_data = self.diffusion.sample_impute(x_num, x_cat, num_mask_idx, cat_mask_idx, 'x_0')
+            
+            label_column_idx = self.d_numerical
+            y_pred = syn_data[:, label_column_idx].cpu().detach().numpy()
         
         results = {}
         for qid, true_label, pred_label in zip(idx, y_true, y_pred):
@@ -178,7 +297,7 @@ class Trainer:
         best_val_loss = np.inf
         best_val_ndcg = -np.inf
         start_time = time.time()
-        print_with_bar(f"Starting Trainin Loop, total number of epoch = {self.steps}")
+        print_with_bar(f"Starting Training Loop, total number of epoch = {self.steps}")
         # Set up wandb's step metric
         self.logger.define_metric("epoch")
         self.logger.define_metric("*", step_metric="epoch")
@@ -186,11 +305,8 @@ class Trainer:
         start_epoch = self.curr_epoch
         if start_epoch > 0:
             print_with_bar(f"Resuming training from epoch {start_epoch}, with validation check every {self.check_val_every} epoches")
-        for epoch in range (start_epoch, self.steps):
+        for epoch in range(start_epoch, self.steps):
             self.curr_epoch = epoch+1
-            # Set up pbar
-            pbar = tqdm(self.train_iter, total=len(self.train_iter))
-            pbar.set_description(f"Epoch {epoch+1}/{self.steps}")
             
             # Compute the loss weights
             if self.closs_weight_schedule == "fixed":
@@ -234,21 +350,42 @@ class Trainer:
             curr_closs = 0.0
             curr_count = 0
             curr_lr = self.optimizer.param_groups[0]['lr']
-            for batch in pbar:
-                x = batch.float().to(self.device)
-                batch_dloss, batch_closs = self._run_step(x, closs_weight, dloss_weight)
-                curr_dloss += batch_dloss.item() * len(x)
-                curr_closs += batch_closs.item() * len(x)
-                curr_count += len(x)
-                pbar.set_postfix({
-                    "lr": curr_lr,
-                    "DLoss": np.around(curr_dloss/curr_count, 4),
-                    "CLoss": np.around(curr_closs/curr_count, 4),
-                    "TotalLoss": np.around((curr_dloss * dloss_weight + curr_closs * closs_weight)/curr_count, 4),
-                    "closs_weight": closs_weight,
-                    "dloss_weight": dloss_weight,
-                })
-                
+            
+            if self.approach == 'pairwise' and self.train_data_by_qid is not None:
+                # For pairwise, generate pairs dynamically and use pairwise loss
+                num_batches = max(1, len(self.train_data) // self.batch_size)
+                pbar = tqdm(range(num_batches), desc=f"Epoch {epoch+1}/{self.steps}")
+                for _ in pbar:
+                    x_i, x_j = self._generate_pairs(self.batch_size)
+                    batch_dloss, batch_closs = self._run_step_pairwise(x_i, x_j, closs_weight, dloss_weight)
+                    curr_dloss += batch_dloss.item() * self.batch_size
+                    curr_closs += batch_closs.item() * self.batch_size
+                    curr_count += self.batch_size
+                    pbar.set_postfix({
+                        "lr": curr_lr,
+                        "DLoss (RankNet)": np.around(curr_dloss/curr_count, 4),
+                        "CLoss": np.around(curr_closs/curr_count, 4),
+                        "TotalLoss": np.around((curr_dloss * dloss_weight + curr_closs * closs_weight)/curr_count, 4),
+                        "closs_weight": closs_weight,
+                        "dloss_weight": dloss_weight,
+                    })
+            else:
+                pbar = tqdm(self.train_iter, total=len(self.train_iter), desc=f"Epoch {epoch+1}/{self.steps}")
+                for batch in pbar:
+                    x = batch.float().to(self.device)
+                    batch_dloss, batch_closs = self._run_step(x, closs_weight, dloss_weight)
+                    curr_dloss += batch_dloss.item() * len(x)
+                    curr_closs += batch_closs.item() * len(x)
+                    curr_count += len(x)
+                    pbar.set_postfix({
+                        "lr": curr_lr,
+                        "DLoss": np.around(curr_dloss/curr_count, 4),
+                        "CLoss": np.around(curr_closs/curr_count, 4),
+                        "TotalLoss": np.around((curr_dloss * dloss_weight + curr_closs * closs_weight)/curr_count, 4),
+                        "closs_weight": closs_weight,
+                        "dloss_weight": dloss_weight,
+                    })
+            
             # Log Losses
             log_dict = {}
             mloss = np.around(curr_dloss / curr_count, 4)

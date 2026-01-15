@@ -46,7 +46,10 @@ def main(args):
     
     print(f"{args.mode.capitalize()} Mode is Enabled")
     num_samples_to_generate = None
-    ckpt_path = None
+    ckpt_path = args.ckpt_path
+    
+    if args.approach == 'pairwise':
+        exp_name += "_pairwise"
     
     if args.k:
         print(f"Training with {args.k} portion of the training data")    
@@ -127,6 +130,7 @@ def main(args):
         
     X_train = np.load(os.path.join(data_dir, 'X_num_train.npy'))
     y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
+    idx_train = np.load(os.path.join(data_dir, 'idx_train.npy'))
     X_train_unlabeled = np.load(os.path.join(data_dir, 'X_num_train_non.npy'))
 
     X_val = np.load(os.path.join(data_dir, 'X_num_val.npy'))
@@ -160,17 +164,36 @@ def main(args):
     X_test = np.concatenate([X_test, y_test.reshape(-1, 1)], axis=1)
     print(f"Train data shape: {X_train.shape}, Val data shape: {X_val.shape}, Test data shape: {X_test.shape}")
     
-    # Create a dataloader for the training data using pytorch
+    # For pairwise training, organize data by query ID
+    train_data_by_qid = None
+    if args.approach == 'pairwise':
+        train_data_by_qid = {}
+        for i in range(len(X_train)):
+            qid = idx_train[i]
+            if qid not in train_data_by_qid:
+                train_data_by_qid[qid] = {'features': [], 'labels': [], 'indices': []}
+            train_data_by_qid[qid]['features'].append(X_train[i])
+            train_data_by_qid[qid]['labels'].append(y_train[i])
+            train_data_by_qid[qid]['indices'].append(i)
+        
+        # Filter out queries with only one document (can't form pairs)
+        num_queries_before = len(train_data_by_qid)
+        train_data_by_qid = {qid: data for qid, data in train_data_by_qid.items() 
+                             if len(data['labels']) > 1}
+        num_queries_after = len(train_data_by_qid)
+        num_filtered = num_queries_before - num_queries_after
+        print(f"Organized training data into {num_queries_after} queries with multiple documents (filtered out {num_filtered} queries with only one document)")
+
+    # Create PyTorch tensors from numpy arrays
     train_data = torch.from_numpy(X_train).float().to(device)
     # Create a dataloader for the validation data using pytorch
     val_data = torch.from_numpy(X_val).float().to(device)
-    # Create a dataloader for the test data using pytorch
     test_data = torch.from_numpy(X_test).float().to(device)
     
-    
     ## Load the module and models
+    raw_config['unimodmlp_params']['approach'] = args.approach
     raw_config['unimodmlp_params']['d_numerical'] = d_numerical
-    raw_config['unimodmlp_params']['categories'] = (categories+1).tolist()  # add one for the mask category
+    raw_config['unimodmlp_params']['categories'] = (categories).tolist()  # add one for the mask category
             
     backbone = UniModOnlyMLP(**raw_config['unimodmlp_params'])
     model = Model(backbone, **raw_config['diffusion_params']['edm_params'])
@@ -232,7 +255,9 @@ def main(args):
         raw_data_dir=data_dir,
         bell_mu=args.bell_mu,
         bell_peak=args.bell_peak,
-        bell_sigma=args.bell_sigma
+        bell_sigma=args.bell_sigma,
+        approach=args.approach,
+        train_data_by_qid=train_data_by_qid
     )
     if args.mode == 'test':
         if args.impute:

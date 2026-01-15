@@ -63,15 +63,11 @@ class MLPDiffusion(nn.Module):
     
 
 class OnlyMLPDiffusion(nn.Module):
-    def __init__(self, d_in, dim_t=512, num_layers=4):
+    def __init__(self, d_in, d_out, dim_t=512, num_layers=4):
         super().__init__()
-
-        total_in_dim = d_in + 1  # add 1 for timestep conditioning
-        d_out = d_in - 1  # subtract 1 to prevent predicting the mask token logit
         
+        last_dim = d_in
         layers = []
-        last_dim = total_in_dim
-        
         for _ in range(num_layers):
             layers.append(nn.Linear(last_dim, dim_t))
             layers.append(nn.SiLU())
@@ -140,15 +136,19 @@ class UniModOnlyMLP(nn.Module):
         x_cat_pred: [bs, d_categorical] (UNNORMALIZED logits)
     """
     def __init__(
-        self, d_numerical, categories, num_layers, dim_t=512, **kwargs
+        self, d_numerical, categories, num_layers, approach, dim_t=512, **kwargs
         ):
         super().__init__()
         self.d_numerical = d_numerical
         self.categories = categories
         d_categorical = sum(categories)
 
-        d_in = d_numerical + d_categorical
-        self.mlp = OnlyMLPDiffusion(d_in=d_in, dim_t=dim_t, num_layers=num_layers)
+        d_in = d_numerical + d_categorical + 1 + 1 # add 1 for timestep and 1 for the mask token
+        # for pointwise approach, we predict all numerical and categorical features except the timestep and mask token
+        # for pairwise approach, we only predict one score which is the difference between two samples
+        d_out = (d_numerical + 1) if approach == 'pairwise' else (d_numerical + d_categorical)
+        
+        self.mlp = OnlyMLPDiffusion(d_in=d_in, d_out=d_out, dim_t=dim_t, num_layers=num_layers)
 
     def forward(self, x_num, x_cat, timesteps):
         x = torch.cat([x_num, x_cat], dim=-1)  # [bs, d_numerical + sum(categories)]

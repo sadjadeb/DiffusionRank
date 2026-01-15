@@ -134,7 +134,71 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             c_loss = self._edm_loss(model_out_num, x_num, sigma_num)
         if x_cat.shape[1] > 0:
             logits = self._subs_parameterization(model_out_cat, x_cat_t)    # log normalized probabilities, with the entry mask category being set to -inf
-            d_loss = self._absorbed_closs(logits, x_cat, sigma_cat, dsigma_cat)
+            d_loss = self._absorbed_closs(logits, x_cat, sigma_cat)
+            
+        return d_loss.mean(), c_loss.mean()
+    
+    def mixed_loss_pairwise(self, x_i, x_j):
+        b = x_i.shape[0]
+        device = x_i.device
+        
+        x_num_i = x_i[:, :self.num_numerical_features]
+        x_cat_i = x_i[:, self.num_numerical_features:].long()
+        x_num_j = x_j[:, :self.num_numerical_features]
+        x_cat_j = x_j[:, self.num_numerical_features:].long()
+
+        # Sample noise level
+        t = torch.rand(b, device=device, dtype=x_num_i.dtype)
+        t = t[:, None]
+        # t = torch.zeros_like(t) # for reproducing discriminative results only
+        sigma_num = self.num_schedule.total_noise(t)
+        sigma_cat = self.cat_schedule.total_noise(t)
+        
+        # Convert sigma_cat to the corresponding alpha and move_chance
+        alpha = torch.exp(-sigma_cat)
+        move_chance = 1 - alpha
+        
+        # move_chance = torch.ones_like(move_chance) # for reproducing discriminative results only
+        
+        # Continuous forward diff
+        x_num_i_t = x_num_i
+        x_num_j_t = x_num_j
+        # Comment out the following lines to disable noise addition to the numerical features
+        if x_num_i.shape[1] > 0:
+            noise_i = torch.randn_like(x_num_i)
+            noise_j = torch.randn_like(x_num_j)
+            x_num_i_t = x_num_i + noise_i * sigma_num
+            x_num_j_t = x_num_j + noise_j * sigma_num
+        
+        # Discrete forward diff
+        # For pairwise: x_t is mask indicator (same for both), x_i/j_t_soft is [label, mask_indicator]
+        x_cat_i_t_soft = x_cat_i.float()
+        x_cat_j_t_soft = x_cat_j.float()
+        if x_cat_i.shape[1] > 0:
+            # Returns: x_t (mask indicator), x_i_t_soft [label, mask], x_j_t_soft [label, mask]
+            x_t, x_cat_i_t_soft, x_cat_j_t_soft = self.q_xt_pairwise(x_cat_i, x_cat_j, move_chance)
+        
+        # Predict original data (distribution)
+        model_out_num_i, model_out_cat_i = self._denoise_fn(
+            x_num_i_t, x_cat_i_t_soft,
+            t.squeeze(), sigma=sigma_num
+        )
+        model_out_num_j, model_out_cat_j = self._denoise_fn(   
+            x_num_j_t, x_cat_j_t_soft,
+            t.squeeze(), sigma=sigma_num
+        )
+        
+        d_loss = torch.zeros((1,)).float()
+        c_loss = torch.zeros((1,)).float()
+        
+        if x_num_i.shape[1] > 0:
+            c_loss_i = self._edm_loss(model_out_num_i, x_num_i, sigma_num)
+            c_loss_j = self._edm_loss(model_out_num_j, x_num_j, sigma_num)
+            c_loss = (c_loss_i + c_loss_j) / 2
+        if x_cat_i.shape[1] > 0:
+            score_pred_i = model_out_cat_i[:, 0]  # Higher score for label=1 docs
+            score_pred_j = model_out_cat_j[:, 0]  # Lower score for label=0 docs
+            d_loss = self._ranknet_loss(score_pred_i, score_pred_j, x_t.squeeze(), sigma_cat)
             
         return d_loss.mean(), c_loss.mean()
 
@@ -332,6 +396,32 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             elbo_weight = -1/(1-alpha)
         
         loss = elbo_weight * log_p_theta
+        
+        # wo elbo_weight
+        # loss = -log_p_theta
+        
+        return loss
+    
+    def _ranknet_loss(self, score_i, score_j, mask, sigma):
+        """
+        RankNet loss: -log(sigmoid(score_i - score_j))
+        where score_i should be higher than score_j.
+        
+        Args:
+            score_i: predicted scores for higher-ranked docs
+            score_j: predicted scores for lower-ranked docs
+            mask: optional mask tensor (1 = compute loss, 0 = ignore)
+                  Only masked samples contribute to the loss.
+        """
+        diff = score_i - score_j
+        loss = -torch.log(torch.sigmoid(diff) + 1e-10)
+        
+        alpha = torch.exp(-sigma)
+        elbo_weight = 1/(1-alpha)
+        loss = elbo_weight * loss
+        
+        loss = loss * mask
+            
         return loss
     
     def _sample_masked_prior(self, *batch_dims):
