@@ -162,26 +162,44 @@ def generate_pairs(qid_data, batch_size, device):
     """
     Generate pairs of documents for pairwise training from the same query.
     For each pair, the first document should have a higher label than the second.
+    Pairs with equal labels are skipped as they provide no learning signal.
     """
     pairs_i = []
     pairs_j = []
     
     # Sample pairs from the same query
     qids = list(qid_data.keys())
-    for _ in range(batch_size):
+    attempts = 0
+    max_attempts = batch_size * 10  # Prevent infinite loop
+    
+    while len(pairs_i) < batch_size and attempts < max_attempts:
+        attempts += 1
         qid = random.choice(qids)
         query_data = qid_data[qid]
         n_docs = len(query_data['labels'])
         
+        # Need at least 2 documents to form a pair
+        if n_docs < 2:
+            continue
+        
         # Sample two different documents
         idx_i, idx_j = random.sample(range(n_docs), 2)
+        label_i = query_data['labels'][idx_i]
+        label_j = query_data['labels'][idx_j]
         
-        # Ensure document i has higher or equal label to document j
-        if query_data['labels'][idx_i] < query_data['labels'][idx_j]:
+        # Skip pairs with equal labels (no preference to learn)
+        if label_i == label_j:
+            continue
+        
+        # Ensure document i has higher label than document j
+        if label_i < label_j:
             idx_i, idx_j = idx_j, idx_i
         
         pairs_i.append(query_data['features'][idx_i])
         pairs_j.append(query_data['features'][idx_j])
+    
+    if len(pairs_i) < batch_size:
+        print(f"Warning: Only generated {len(pairs_i)} pairs out of {batch_size} requested")
     
     return torch.from_numpy(np.array(pairs_i)).float().to(device), torch.from_numpy(np.array(pairs_j)).float().to(device)
 
