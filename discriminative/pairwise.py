@@ -247,10 +247,10 @@ def test(net, data_iter):
                     results[qid] = []
                 results[qid].append((labels[i].item(), scores[i].item()))
         
-        avg_ndcg, avg_p = calculate_metrics(results)
+        avg_ndcg, avg_map = calculate_metrics(results)
         
         return {
-            'p': avg_p,
+            'map': avg_map,
             'ndcg': avg_ndcg,
             'results': results
         }
@@ -273,12 +273,12 @@ if __name__ == '__main__':
             # Evaluate on validation and test sets
             val_metrics = test(net, val_reader_iter)
             test_metrics = test(net, test_reader_iter)
-            print(f'epoch: {epoch}, train_loss: {train_loss}, val_p: {val_metrics["p"]}, val_ndcg: {val_metrics["ndcg"]}, test_p: {test_metrics["p"]}, test_ndcg: {test_metrics["ndcg"]}')
-            wandb.log({'train_d_loss': train_loss,
-                       'val_ndcg': val_metrics["ndcg"],
-                       'val_p': val_metrics["p"],
-                       'test_ndcg': test_metrics["ndcg"],
-                       'test_p': test_metrics["p"],})
+            print(f'epoch: {epoch}, train_loss: {train_loss}, val_map: {val_metrics["map"]}, val_ndcg: {val_metrics["ndcg"]}, test_map: {test_metrics["map"]}, test_ndcg: {test_metrics["ndcg"]}')
+            wandb.log({'loss/train_d_loss': train_loss,
+                       'ranking_metrics/val_ndcg': val_metrics["ndcg"],
+                       'ranking_metrics/val_map': val_metrics["map"],
+                       'ranking_metrics/test_ndcg': test_metrics["ndcg"],
+                       'ranking_metrics/test_map': test_metrics["map"],})
             
             # Track Best Model
             if val_metrics["ndcg"] > best_ndcg:
@@ -299,7 +299,7 @@ if __name__ == '__main__':
     
     print('Evaluating the best model on test set...')
     test_metrics = test(net, test_reader_iter)
-    print(f'Best Model Performance: test_p: {test_metrics["p"]}, test_ndcg: {test_metrics["ndcg"]}')
+    print(f'Best Model Performance: test_map: {test_metrics["map"]}, test_ndcg: {test_metrics["ndcg"]}')
         
     # Save results
     results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.pairwise.k{k}.{args.exp_name}.best.txt')

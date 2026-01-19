@@ -76,19 +76,19 @@ def train_and_test(net, optimizer, criterion):
             train_loss += loss.item()
 
         avg_train_loss = train_loss / num_steps_per_epoch
-        avgp, avgndcg = test(net)
-        performance = (avgp + avgndcg) / 2
+        avgmap, avgndcg = test(net)
+        performance = (avgmap + avgndcg) / 2
 
         epoch_result = {
             'epoch': epoch + 1,
             'train_loss': avg_train_loss,
-            'avgp': avgp,
+            'avgmap': avgmap,
             'avgndcg': avgndcg,
             'performance': performance
         }
         epoch_results.append(epoch_result)
 
-        message = f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_train_loss:.4f}, AvgP: {avgp:.4f}, AvgNDCG: {avgndcg:.4f}, Performance: {performance:.4f}"
+        message = f"Epoch {epoch + 1}/{num_epochs}, Loss: {avg_train_loss:.4f}, AvgMAP: {avgmap:.4f}, AvgNDCG: {avgndcg:.4f}, Performance: {performance:.4f}"
         print(message)
         write_to_file(message)
 
@@ -108,9 +108,9 @@ def test(net):
                     results[qids[i]] = []
                 results[qids[i]].append((labels[i], out[i][0]))
 
-    avgndcg, avgp = calculate_metrics(results)
+    avgndcg, avgmap = calculate_metrics(results)
 
-    return avgp, avgndcg
+    return avgmap, avgndcg
 
 
 def hyperparameter_tuning():
@@ -145,7 +145,7 @@ def hyperparameter_tuning():
         best_epoch_result = max(epoch_results, key=lambda x: x['performance'])
         results.append((current_params, best_epoch_result))
 
-        message = f"Best epoch: {best_epoch_result['epoch']}, Performance: {best_epoch_result['performance']:.4f} (AvgP: {best_epoch_result['avgp']:.4f}, AvgNDCG: {best_epoch_result['avgndcg']:.4f})"
+        message = f"Best epoch: {best_epoch_result['epoch']}, Performance: {best_epoch_result['performance']:.4f} (AvgMAP: {best_epoch_result['avgmap']:.4f}, AvgNDCG: {best_epoch_result['avgndcg']:.4f})"
         print(message)
         write_to_file(message)
 
@@ -173,7 +173,7 @@ def hyperparameter_tuning():
 
     for params, best_result in sorted_results:
         message = f"Params: {params}\n"
-        message += f"Best Epoch: {best_result['epoch']}, Performance: {best_result['performance']:.4f}, AvgP: {best_result['avgp']:.4f}, AvgNDCG: {best_result['avgndcg']:.4f}, Train Loss: {best_result['train_loss']:.4f}\n"
+        message += f"Best Epoch: {best_result['epoch']}, Performance: {best_result['performance']:.4f}, AvgMAP: {best_result['avgmap']:.4f}, AvgNDCG: {best_result['avgndcg']:.4f}, Train Loss: {best_result['train_loss']:.4f}\n"
         print(message)
         write_to_file(message)
 

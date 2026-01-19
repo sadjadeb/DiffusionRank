@@ -288,8 +288,8 @@ class Trainer:
         
         self.diffusion.num_timesteps = default_num_timesteps
         
-        avg_ndcg, avg_p = calculate_metrics(results)
-        return avg_ndcg, avg_p
+        avg_ndcg, avg_map = calculate_metrics(results)
+        return avg_ndcg, avg_map
 
     def run_loop(self):
         closs_weight, dloss_weight = self.c_lambda, self.d_lambda
@@ -405,8 +405,8 @@ class Trainer:
                 test_mloss, test_gloss = self.compute_loss(self.test_iter)
                 test_loss = test_mloss + test_gloss
 
-            val_ndcg, val_p = self.compute_ranking_metrics_by_imputation(self.val_data, self.idx_val)
-            test_ndcg, test_p = self.compute_ranking_metrics_by_imputation(self.test_data, self.idx_test)
+            val_ndcg, val_map = self.compute_ranking_metrics_by_imputation(self.val_data, self.idx_val)
+            test_ndcg, test_map = self.compute_ranking_metrics_by_imputation(self.test_data, self.idx_test)
 
             loss_dict = {
                 "epoch": epoch + 1,
@@ -419,13 +419,13 @@ class Trainer:
                 "loss/val_c_loss": val_gloss,
                 "loss/val_d_loss": val_mloss,
                 "loss/val_total_loss": val_loss,
-                "loss/val_ndcg": val_ndcg,
-                "loss/val_p": val_p,
+                "ranking_metrics/val_ndcg": val_ndcg,
+                "ranking_metrics/val_map": val_map,
                 "loss/test_c_loss": test_gloss,
                 "loss/test_d_loss": test_mloss,
                 "loss/test_total_loss": test_loss,
-                "loss/test_ndcg": test_ndcg,
-                "loss/test_p": test_p,
+                "ranking_metrics/test_ndcg": test_ndcg,
+                "ranking_metrics/test_map": test_map,
             }
             log_dict.update(loss_dict)
             

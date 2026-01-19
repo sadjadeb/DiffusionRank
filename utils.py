@@ -50,7 +50,7 @@ class EarlyStopping:
 
 def calculate_metrics(lables_tuples, k=10):
     total_ndcg = 0
-    total_precision = 0
+    total_map = 0
     for qid, labels in lables_tuples.items():
         if len(labels) <= 1:
             continue
@@ -59,22 +59,34 @@ def calculate_metrics(lables_tuples, k=10):
         true_labels = [t[0] for t in labels]
         predicted_scores = [t[1] for t in labels]
 
-        # Sort based on predicted scores in descending order to calculate P@10
+        # Sort based on predicted scores in descending order to calculate MAP@k
         sorted_indices = sorted(range(len(predicted_scores)), key=lambda i: predicted_scores[i], reverse=True)
         top_k_indices = sorted_indices[:k]
 
-        # Precision at k
-        relevant_at_k = sum(1 for i in top_k_indices if true_labels[i] > 0)
-        precision_at_k = relevant_at_k / k
+        # Average Precision at k (AP@k)
+        # AP is the average of precision values at each position where a relevant document occurs
+        num_relevant = 0
+        sum_precisions = 0.0
+        for rank, idx in enumerate(top_k_indices, start=1):
+            if true_labels[idx] > 0:  # relevant document
+                num_relevant += 1
+                precision_at_rank = num_relevant / rank
+                sum_precisions += precision_at_rank
+        
+        # Average Precision for this query
+        if num_relevant > 0:
+            ap_at_k = sum_precisions / num_relevant
+        else:
+            ap_at_k = 0.0
 
         # NDCG@k
         ndcg_at_k = ndcg_score([true_labels], [predicted_scores], k=k)
 
         total_ndcg += ndcg_at_k
-        total_precision += precision_at_k
+        total_map += ap_at_k
 
     # Calculate averages
     avgndcg = total_ndcg / len(lables_tuples)
-    avgp = total_precision / len(lables_tuples)
+    avgmap = total_map / len(lables_tuples)
     
-    return avgndcg, avgp
+    return avgndcg, avgmap

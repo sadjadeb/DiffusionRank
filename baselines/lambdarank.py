@@ -116,13 +116,13 @@ def evaluate_lgb(model, X, true_labels, qids):
             results[qid] = []
         results[qid].append((y_true, y_pred))
 
-    avgndcg, avgp = calculate_metrics(results)
-    return avgndcg, avgp, results
+    avgndcg, avgmap = calculate_metrics(results)
+    return avgndcg, avgmap, results
 
 print('Evaluating on test set...')
-avgndcg, avgp, test_results = evaluate_lgb(model, X_test, y_test, idx_test)
-print(f'Test NDCG: {avgndcg:.6f}, Test P: {avgp:.6f}')
-print(f'{avgndcg:.6f} {avgp:.6f}')
+avgndcg, avgmap, test_results = evaluate_lgb(model, X_test, y_test, idx_test)
+print(f'Test NDCG: {avgndcg:.6f}, Test MAP: {avgmap:.6f}')
+print(f'{avgndcg:.6f} {avgmap:.6f}')
 
 # Save model
 model_save_path = os.path.join('checkpoints', f'ltr.{dataset}.lambdamart.k{k}.quantile.model.txt')

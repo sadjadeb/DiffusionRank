@@ -84,9 +84,9 @@ def test(net, epoch, train_loss):
                     results[qids[i]] = []
                 results[qids[i]].append((labels[i], out[i][0]))
                 
-        avgndcg, avgp = calculate_metrics(results)
+        avgndcg, avgmap = calculate_metrics(results)
         
-        print(f'epoch:{epoch}, loss: {train_loss}, avgp: {avgp}, avgndcg: {avgndcg}')
+        print(f'epoch:{epoch}, loss: {train_loss}, avgmap: {avgmap}, avgndcg: {avgndcg}')
 
 
 if __name__ == '__main__':

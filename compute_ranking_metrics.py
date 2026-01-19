@@ -22,10 +22,10 @@ with open(args.run_file) as f:
         true_labels.append((1 - float(true_label), float(true_label)))
         pred_labels.append((1 - float(pred_label), float(pred_label)))
 
-avgndcg, avgp = calculate_metrics(results)
+avgndcg, avgmap = calculate_metrics(results)
 
 true_labels = np.array(true_labels)
 pred_labels = np.array(pred_labels)
 auc = roc_auc_score(true_labels, pred_labels, average='micro')
 
-print(f'avgp: {avgp:.6f}, avgndcg: {avgndcg:.6f}, auc: {auc:.6f}')
+print(f'avgmap: {avgmap:.6f}, avgndcg: {avgndcg:.6f}, auc: {auc:.6f}')
