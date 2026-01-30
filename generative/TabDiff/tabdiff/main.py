@@ -159,6 +159,7 @@ def main(args):
                 random_state=seed,
             )
     X_train = normalizer.fit_transform(X_train)
+    X_train_unlabeled = normalizer.transform(X_train_unlabeled) if k < 1.0 else X_train_unlabeled
     X_val = normalizer.transform(X_val)
     X_test = normalizer.transform(X_test)
     
@@ -166,6 +167,10 @@ def main(args):
     X_train = np.concatenate([X_train, y_train.reshape(-1, 1)], axis=1)
     X_val = np.concatenate([X_val, y_val.reshape(-1, 1)], axis=1)
     X_test = np.concatenate([X_test, y_test.reshape(-1, 1)], axis=1)
+    
+    # Append all 2 to the unlabeled data labels (mask category)
+    y_train_unlabeled = np.full((X_train_unlabeled.shape[0], 1), 2)  # mask index for pointwise
+    X_train_unlabeled = np.concatenate([X_train_unlabeled, y_train_unlabeled], axis=1)
     print(f"Train data shape: {X_train.shape}, Val data shape: {X_val.shape}, Test data shape: {X_test.shape}")
     
     # For pairwise training, organize data by query ID
@@ -190,7 +195,7 @@ def main(args):
 
     # Create PyTorch tensors from numpy arrays
     train_data = torch.from_numpy(X_train).float().to(device)
-    # Create a dataloader for the validation data using pytorch
+    train_data_unlabeled = torch.from_numpy(X_train_unlabeled).float().to(device)
     val_data = torch.from_numpy(X_val).float().to(device)
     test_data = torch.from_numpy(X_test).float().to(device)
     
@@ -240,6 +245,7 @@ def main(args):
     trainer = Trainer(
         diffusion,
         train_data,
+        train_data_unlabeled,
         val_data,
         idx_val,
         test_data,
