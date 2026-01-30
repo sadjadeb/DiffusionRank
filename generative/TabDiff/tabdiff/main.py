@@ -52,12 +52,7 @@ def main(args):
     num_samples_to_generate = None
     ckpt_path = args.ckpt_path
     
-    if args.approach == 'pairwise':
-        exp_name += "_pairwise"
-    
-    if args.k:
-        print(f"Training with {args.k} portion of the training data")    
-        exp_name += f"_k{args.k}"
+    exp_name += f"_{args.approach}_k{k}"
     
     if args.mode == 'train':
         print("NEW training is started")                
