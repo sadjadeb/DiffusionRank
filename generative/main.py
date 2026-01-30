@@ -45,7 +45,7 @@ def main(args):
     
     ## Load configs
     curr_dir = 'tabdiff'
-    config_path = f'{curr_dir}/configs/tabdiff_configs.toml'
+    config_path = f'{curr_dir}/tabdiff_configs.toml'
     raw_config = src.load_config(config_path)
     
     print(f"{args.mode.capitalize()} Mode is Enabled")
@@ -71,7 +71,7 @@ def main(args):
         num_samples_to_generate = args.num_samples_to_generate
         ckpt_path = args.ckpt_path
         if ckpt_path is None:
-            ckpt_parent_path = f"{curr_dir}/ckpt/{dataset}/{exp_name}"
+            ckpt_parent_path = f"checkpoints/{dataset}/{exp_name}"
             ckpt_path_arr = glob.glob(f"{ckpt_parent_path}/best_model*")
             assert ckpt_path_arr, f"Cannot not infer ckpt_path from {ckpt_parent_path}, please make sure that you first train a model before testing!"
             ckpt_path = ckpt_path_arr[0]
@@ -84,7 +84,7 @@ def main(args):
     
 
     ## Creat model_save and result paths
-    model_save_path =  f'{curr_dir}/ckpt/{dataset}/{exp_name}'
+    model_save_path =  f'checkpoints/{dataset}/{exp_name}'
     raw_config['model_save_path'] = model_save_path
     os.makedirs(model_save_path, exist_ok=True)
     
