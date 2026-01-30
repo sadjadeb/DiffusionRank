@@ -664,14 +664,16 @@ class Trainer:
             gloss = np.around(curr_closs / curr_count, 4)
             total_loss = mloss * dloss_weight + gloss * closs_weight
             
-            if self.approach == 'pairwise':
-                val_mloss, val_gloss, val_loss = None, None, None
-                test_mloss, test_gloss, test_loss = None, None, None
-            else:
-                val_mloss, val_gloss = self.compute_loss(self.val_iter)
-                val_loss = val_mloss + val_gloss
-                test_mloss, test_gloss = self.compute_loss(self.test_iter)
-                test_loss = test_mloss + test_gloss
+            # if self.approach == 'pairwise':
+            #     val_mloss, val_gloss, val_loss = None, None, None
+            #     test_mloss, test_gloss, test_loss = None, None, None
+            # else:
+            #     val_mloss, val_gloss = self.compute_loss_for_eval(self.val_iter)
+            #     val_loss = val_mloss + val_gloss
+            #     test_mloss, test_gloss = self.compute_loss_for_eval(self.test_iter)
+            #     test_loss = test_mloss + test_gloss
+            val_mloss, val_gloss, val_loss = None, None, None
+            test_mloss, test_gloss, test_loss = None, None, None
 
             val_ndcg, val_map = self.compute_ranking_metrics_by_imputation(self.val_data, self.idx_val)
             test_ndcg, test_map = self.compute_ranking_metrics_by_imputation(self.test_data, self.idx_test)
