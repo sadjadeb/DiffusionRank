@@ -24,8 +24,8 @@ def print_with_bar(log_msg):
 
 class Trainer:
     def __init__(
-            self, diffusion, train_data, train_data_unlabeled, val_data, idx_val, test_data, idx_test, 
-            d_numerical, categories, k, logger, 
+            self, diffusion, train_data, val_data, idx_val, test_data, idx_test, 
+            d_numerical, categories, logger, 
             lr, weight_decay, steps, batch_size, check_val_every,
             sample_batch_size, model_save_path, result_save_path,
             num_samples_to_generate=None,
@@ -65,10 +65,6 @@ class Trainer:
             self.train_iter = None  # Will be generated on-the-fly
         else:
             self.train_iter = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-        # self.train_iter = DataLoader(train_data, batch_size=int(k * batch_size), shuffle=True)
-        self.train_data_unlabeled = train_data_unlabeled
-        self.train_iter_unlabeled = DataLoader(train_data_unlabeled, batch_size=int((1 - k) * batch_size) or 1, shuffle=False)
-        self.unlabeled_cycle = cycle(self.train_iter_unlabeled) if k < 1.0 else []   # dummy iterator when k=1.0
         self.val_iter = DataLoader(val_data, batch_size=batch_size, shuffle=False)
         self.val_data = val_data
         self.idx_val = idx_val
@@ -78,7 +74,6 @@ class Trainer:
         
         self.d_numerical = d_numerical
         self.categories = categories
-        self.k = k
         
         self.steps = steps
         self.init_lr = lr
