@@ -13,12 +13,12 @@ set_all_seeds(seed)
 parser = argparse.ArgumentParser(description='Run XGBoost Experiment')
 parser.add_argument('--dataset', type=str, default='MQ2007', choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment')
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
-parser.add_argument('--objective', type=str, choices=['regression', 'binary'], default='binary', help='Objective function for LightGBM')
+parser.add_argument('--approach', type=str, choices=['pointwise', 'pairwise', 'listwise'], default='pointwise', help='Approach for training')
 args = parser.parse_args()
 
 dataset = args.dataset
 k = args.k
-print(f'Running XGBoost experiment for dataset: {dataset}, k: {k}, objective: {args.objective}')
+print(f'Running XGBoost experiment for dataset: {dataset}, k: {k}, approach: {args.approach}')
 
 # Setup hyperparameters
 data_normalization = 'quantile'
@@ -41,8 +41,9 @@ y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
 idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
 
 # Binarize labels
-threshold_of_neg = 1 if 'MSLR' in dataset else 0
-y_train[y_train <= threshold_of_neg], y_train[y_train > threshold_of_neg] = 0, 1
+if args.approach == 'pointwise':
+    threshold_of_neg = 1 if 'MSLR' in dataset else 0
+    y_train[y_train <= threshold_of_neg], y_train[y_train > threshold_of_neg] = 0, 1
 
 # Normalize
 if data_normalization == 'quantile':
@@ -58,20 +59,28 @@ if data_normalization == 'quantile':
 dtrain = xgb.DMatrix(X_train, label=y_train)
 dval = xgb.DMatrix(X_val, label=y_val)
 
+if args.approach == 'pointwise':
+    objective = 'binary:logistic'
+elif args.approach == 'pairwise':
+    objective = 'rank:pairwise'
+elif args.approach == 'listwise':
+    objective = 'rank:ndcg'
+else:
+    raise ValueError(f'Unknown approach: {args.approach}')
+
 params = {
-    'objective': 'binary:logistic' if args.objective == 'binary' else 'reg:squarederror',
-    "eval_metric": ["ndcg", "logloss", "auc"] if args.objective == 'binary' else ["ndcg"],
-    "eta": 0.03,
-    "max_depth": 8,
-    "min_child_weight": 30,
-    "subsample": 0.9,
-    "colsample_bytree": 0.9,
-    "lambda": 0.1,
-    "alpha": 0.0,
+    'objective': objective,
+    "eval_metric": ["ndcg@10"],
     "tree_method": "hist",
-    "nthread": 16,
     "seed": seed,
 }
+
+if objective == 'rank:pairwise' or objective == 'rank:ndcg':
+    params['lambdarank_num_pair_per_sample'] = 10
+    params['lambdarank_pair_method'] = "topk"
+
+if 'MSLR' in dataset:
+    params['max_depth'] = 32
 
 model = xgb.train(params, dtrain,
                     num_boost_round=3000,
@@ -97,12 +106,12 @@ avgndcg, avgmap, test_results = evaluate_xgb(model, X_test, y_test, idx_test)
 print(f'Test NDCG: {avgndcg:.6f}, Test MAP: {avgmap:.6f}')
 print(f'{avgndcg:.6f} {avgmap:.6f}')
 
-model_save_path = os.path.join('checkpoints', f'ltr.{dataset}.xgboost.k{k}.quantile.model.json')
+model_save_path = os.path.join('checkpoints', f'ltr.{dataset}.xgboost.{args.approach}.k{k}.quantile.model.json')
 model.save_model(model_save_path)
 print(f'Model saved to {model_save_path}')
 
 # Save results
-results_save_path = os.path.join('predictions', f'ltr.{dataset}.xgboost.k{k}.quantile.results.txt')
+results_save_path = os.path.join('predictions', f'ltr.{dataset}.xgboost.{args.approach}.k{k}.quantile.results.txt')
 with open(results_save_path, 'w') as f:
     f.write('qid true_label pred_score\n')
     for qid, values in test_results.items():
