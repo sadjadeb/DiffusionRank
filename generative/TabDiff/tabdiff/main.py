@@ -67,6 +67,7 @@ def main(args):
             if args.k is None:
                 raise ValueError("Please provide the amount of training data to be used for finetuning, e.g., 0.25 means 25% of the training data will be used for finetuning")
     elif args.mode == 'test':
+        args.no_wandb = True
         num_samples_to_generate = args.num_samples_to_generate
         ckpt_path = args.ckpt_path
         if ckpt_path is None:
