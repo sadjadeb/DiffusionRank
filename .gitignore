@@ -15,7 +15,8 @@
 **slurm-*
 
 # Specific files and directories
-/slurm_run_scripts
+slurm_run_scripts/
+create_plots_for_paper/
 
 # TabDiff specific
 generative/TabDiff/synthetic/
