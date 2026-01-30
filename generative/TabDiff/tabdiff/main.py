@@ -264,14 +264,16 @@ def main(args):
         train_data_by_qid=train_data_by_qid
     )
     if args.mode == 'test':
-        if args.impute:
-            imputed_sample_save_dir = f"impute/{dataset}/{exp_name}"
-            trainer.test_impute(
-                args.impute_condition, 
-                imputed_sample_save_dir,
-            )
-        else:
-            trainer.test()
+        predictions_save_path = os.path.join('predictions', f'ltr.{dataset}.{args.approach}.k{k}.{exp_name}.best.txt')
+        
+        predictions = trainer.predict(test_data, idx_test)
+        
+        with open(predictions_save_path, 'w') as f:
+            f.write('qid true_label pred_label\n')
+            for qid, values in predictions.items():
+                for true_label, pred_label in values:
+                    f.write(f'{qid} {true_label} {pred_label}\n')
+        print('Results saved to {}'.format(predictions_save_path))
     else:
         ## Save config
         config_save_path = raw_config['model_save_path']

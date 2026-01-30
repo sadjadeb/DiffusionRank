@@ -290,6 +290,58 @@ class Trainer:
         
         avg_ndcg, avg_map = calculate_metrics(results)
         return avg_ndcg, avg_map
+    
+    def predict(self, data, idx):
+        # Evaluate on validation and test set to compute NDCG and P
+        default_num_timesteps = self.diffusion.num_timesteps
+        self.diffusion.num_timesteps = 1
+        
+        x_num = data[:, :self.d_numerical].to(self.device)
+        x_cat = data[:, self.d_numerical:].long().to(self.device)
+        y_true = data[:, self.d_numerical:].squeeze().cpu().numpy()
+        
+        if self.approach == 'pairwise':
+            # For pairwise, get raw logits from model as ranking scores
+            # Use minimal noise to get clean predictions
+            self.diffusion.eval()
+            with torch.no_grad():
+                b = x_num.shape[0]
+                t = torch.zeros(b, device=self.device)  # t=0 for clean prediction
+                sigma_num = self.diffusion.num_schedule.total_noise(t[:, None])
+                
+                # Create pairs of [0., 0., 1.0] as one-hot encoding for categorical input
+                # It means the input is always masked
+                x_cat_onehot = torch.zeros(b, self.categories[0]+1, device=self.device)
+                x_cat_onehot[:, self.categories[0]] = 1.0
+                
+                # Get model predictions
+                _, pred_cat = self.diffusion._denoise_fn(x_num, x_cat_onehot, t, sigma=sigma_num)
+                
+                # Use negated class_0 logit as ranking score (same as training)
+                # Higher score = more likely to be label=1
+                y_pred = pred_cat[:, 0].cpu().numpy()
+        else:
+            # For pointwise, use sample_impute for discrete prediction
+            num_mask_idx, cat_mask_idx = [], [0]
+            
+            # Set the label column to mask value
+            mask_value = self.categories[0] if len(self.categories) > 0 else 2
+            x_cat[:, cat_mask_idx] = mask_value
+            
+            syn_data = self.diffusion.sample_impute(x_num, x_cat, num_mask_idx, cat_mask_idx, 'x_0')
+            
+            label_column_idx = self.d_numerical
+            y_pred = syn_data[:, label_column_idx].cpu().detach().numpy()
+        
+        results = {}
+        for qid, true_label, pred_label in zip(idx, y_true, y_pred):
+            if qid not in results:
+                results[qid] = []
+            results[qid].append((true_label, pred_label))
+        
+        self.diffusion.num_timesteps = default_num_timesteps
+        
+        return results
 
     def run_loop(self):
         closs_weight, dloss_weight = self.c_lambda, self.d_lambda
