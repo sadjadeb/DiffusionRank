@@ -95,15 +95,13 @@ train_data_by_qid = {}
 for i in range(len(X_train)):
     qid = idx_train[i]
     if qid not in train_data_by_qid:
-        train_data_by_qid[qid] = {'features': [], 'labels': [], 'indices': []}
+        train_data_by_qid[qid] = {'features': [], 'labels': []}
     train_data_by_qid[qid]['features'].append(X_train[i])
     train_data_by_qid[qid]['labels'].append(y_train[i])
-    train_data_by_qid[qid]['indices'].append(i)
 
 # Filter out queries with only one document (can't form pairs)
 num_queries_before = len(train_data_by_qid)
-train_data_by_qid = {qid: data for qid, data in train_data_by_qid.items() 
-                     if len(data['labels']) > 1}
+train_data_by_qid = {qid: data for qid, data in train_data_by_qid.items() if len(data['labels']) > 1}
 num_queries_after = len(train_data_by_qid)
 num_filtered = num_queries_before - num_queries_after
 print(f"Organized training data into {num_queries_after} queries with multiple documents (filtered out {num_filtered} queries with only one document)")
