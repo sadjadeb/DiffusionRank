@@ -4,8 +4,6 @@ import time
 import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import numpy as np
-import pandas as pd
-import json
 from utils import calculate_metrics
 from copy import deepcopy
 import math
@@ -530,90 +528,6 @@ class Trainer:
         print_with_bar(f"Ending Trainnig Loop, totoal training time = {end_time - start_time}")
         self.logger.log({'training_time': end_time - start_time})
         
-    def test(self):    
-        out_metrics, _, _ = self.evaluate_generation(save_metric_details=True, plot_density=True)
-        print_with_bar(f"Results of the test are: \n{out_metrics}")
-        self.logger.log(out_metrics)
-        print(out_metrics)
-
-    def evaluate_generation(self, save_metric_details=False, plot_density=False, ema=False):
-        self.diffusion.eval()
-        
-        # Sample a synthetic table
-        num_samples = self.num_samples_to_generate if self.num_samples_to_generate else self.metrics.real_data_size # By default, num_samples_to_generate is not specified. In this case, we generate the same number of samples as the real dataset. This approach is consistently used across all experiments in the paper.
-        syn_df = self.sample_synthetic(num_samples, ema=ema)
-        
-        # Save the sample
-        save_path = os.path.join(self.result_save_path, str(self.curr_epoch), "ema" if ema else "")
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
-        path = os.path.join(save_path, "samples.csv")
-        syn_df.to_csv(path, index=False)
-        print(
-            f"Samples are saved at {path}"
-        )
-        
-        # Compute evaluation metrics on the sample
-        syn_df_loaded = pd.read_csv(os.path.join(save_path, "samples.csv")) # In the original tabsyn code, syn_data is implicitly casted into float.64 when it gets loaded with pd.read_csv in the evaluation script. If we don't cast, the density evluation for some columns (especially those with tailed and peaked distribution) will collapse.
-        out_metrics, extras = self.metrics.evaluate(syn_df_loaded)
-        
-        # Save metrics and metric details
-        path = os.path.join(save_path, "all_results.json")
-        with open(path, "w") as json_file:
-            json.dump(out_metrics, json_file, indent=4, separators=(", ", ": "))        # always locally save the output metrics
-        if save_metric_details:
-            for name, extra in extras.items():
-                if isinstance(extra, pd.DataFrame):
-                    extra.to_csv(os.path.join(save_path, f"{name}.csv"))
-                elif isinstance(extra, dict):
-                    with open(os.path.join(save_path, f"{name}.json"), "w") as json_file:
-                        json.dump(extra, json_file, indent=4, separators=(", ", ": "))
-                else:
-                    raise NotImplementedError(f"Extra file generated during evaluations has type {type(extra)}, and code to save this type of file is not implemented")
-        
-        return out_metrics, extras, syn_df
-        
-
-    def sample_synthetic(self, num_samples, keep_nan_samples=True, ema=False):
-        if ema:
-            curr_model, curr_num_schedule, curr_cat_schedule = self.to_ema_model()
-        info = self.metrics.info
-        
-        print_with_bar(f"Starting Sampling, total samples to generate = {num_samples}")
-        start_time = time.time()
-        
-        syn_data = self.diffusion.sample_all(num_samples, self.sample_batch_size, keep_nan_samples=keep_nan_samples)
-        print(f"Shape of the generated sample = {syn_data.shape}")
-        
-        if keep_nan_samples:
-            num_all_zero_row = (syn_data.sum(dim=1) == 0).sum()
-            if num_all_zero_row:
-                print(f"The generated samples contain {num_all_zero_row} Nan instances!!!")
-                self.logger.log({
-                    'num_Nan_sample': num_all_zero_row
-                })
-
-        # Recover tables
-        num_inverse = self.dataset.num_inverse
-        int_inverse = self.dataset.int_inverse
-        cat_inverse = self.dataset.cat_inverse
-        
-        syn_num, syn_cat, syn_target = split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse) 
-        syn_df = recover_data(syn_num, syn_cat, syn_target, info)
-        
-        idx_name_mapping = info['idx_name_mapping']
-        idx_name_mapping = {int(key): value for key, value in idx_name_mapping.items()}
-
-        syn_df.rename(columns = idx_name_mapping, inplace=True)
-        
-        end_time = time.time()
-        print_with_bar(f"Ending Sampling, totoal sampling time = {end_time - start_time}")
-        
-        if ema:
-            self.to_model(curr_model, curr_num_schedule, curr_cat_schedule)
-
-        return syn_df
-    
     def to_ema_model(self):
         curr_model = self.diffusion._denoise_fn
         curr_num_schedule = self.diffusion.num_schedule
@@ -667,58 +581,3 @@ class Trainer:
                 for qid, true_label, pred_label in zip(self.idx_test, y_true_test, y_pred_test):
                     f.write(f'{qid} {true_label} {pred_label}\n')
             print(f"Results saved to {results_save_path}")
-
-
-@torch.no_grad()
-def split_num_cat_target(syn_data, info, num_inverse, int_inverse, cat_inverse):
-    task_type = info['task_type']
-
-    num_col_idx = info['num_col_idx']
-    cat_col_idx = info['cat_col_idx']
-    target_col_idx = info['target_col_idx']
-
-    n_num_feat = len(num_col_idx)
-    n_cat_feat = len(cat_col_idx)
-
-    if task_type == 'regression':
-        n_num_feat += len(target_col_idx)
-    else:
-        n_cat_feat += len(target_col_idx)
-
-    syn_num = syn_data[:, :n_num_feat]
-    syn_cat = syn_data[:, n_num_feat:]
-
-    syn_num = num_inverse(syn_num).astype(np.float32)
-    syn_num = int_inverse(syn_num).astype(np.float32)
-    # syn_cat = cat_inverse(syn_cat)
-
-
-    if info['task_type'] == 'regression':
-        syn_target = syn_num[:, :len(target_col_idx)]
-        syn_num = syn_num[:, len(target_col_idx):]
-    
-    else:
-        syn_target = syn_cat[:, :len(target_col_idx)]
-        syn_cat = syn_cat[:, len(target_col_idx):]
-
-    return syn_num, syn_cat, syn_target
-
-def recover_data(syn_num, syn_cat, syn_target, info):
-    num_col_idx = info['num_col_idx']
-    cat_col_idx = info['cat_col_idx']
-    target_col_idx = info['target_col_idx']
-
-    idx_mapping = info['idx_mapping']
-    idx_mapping = {int(key): value for key, value in idx_mapping.items()}
-
-    syn_df = pd.DataFrame()
-
-    for i in range(len(num_col_idx) + len(cat_col_idx) + len(target_col_idx)):
-        if i in set(num_col_idx):
-            syn_df[i] = syn_num[:, idx_mapping[i]]
-        elif i in set(cat_col_idx):
-            syn_df[i] = syn_cat[:, idx_mapping[i] - len(num_col_idx)]
-        else:
-            syn_df[i] = syn_target[:, idx_mapping[i] - len(num_col_idx) - len(cat_col_idx)]
-
-    return syn_df
