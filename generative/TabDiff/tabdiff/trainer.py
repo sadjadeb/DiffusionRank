@@ -8,10 +8,10 @@ from utils import calculate_metrics
 from copy import deepcopy
 import math
 import random
-from utils_train import update_ema
-
 from tqdm import tqdm
 from torch.utils.data import DataLoader
+from sklearn.metrics import ndcg_score
+
 
 BAR = "=============="
 def print_with_bar(log_msg):
@@ -19,6 +19,7 @@ def print_with_bar(log_msg):
     if "End" in log_msg:
          log_msg += "\n"
     print(log_msg)
+
 
 class Trainer:
     def __init__(
@@ -58,8 +59,8 @@ class Trainer:
         self.train_data = train_data
         self.approach = approach
         self.train_data_by_qid = train_data_by_qid
-        if approach == 'pairwise' and train_data_by_qid is not None:
-            # For pairwise, we'll generate pairs dynamically during training
+        if approach in ['pairwise', 'listwise_lambdarank'] and train_data_by_qid is not None:
+            # For pairwise/listwise_lambdarank, we'll generate pairs dynamically during training
             self.train_iter = None  # Will be generated on-the-fly
         else:
             self.train_iter = DataLoader(train_data, batch_size=batch_size, shuffle=True)
@@ -110,6 +111,10 @@ class Trainer:
             self.curr_epoch = 0
         else:
             self.curr_epoch = int(os.path.basename(self.ckpt_path).split('_')[-1].split('.')[0])
+        
+        # Cache for lambda weights (in listwise_lambdarank mode)
+        # Structure: {qid: {(idx_i, idx_j): lambda_weight, ...}, ...}
+        self.lambda_weights_cache = {}
 
     def _anneal_lr(self, step):
         frac_done = step / self.steps
@@ -170,6 +175,175 @@ class Trainer:
         
         return pairs_i_tensor, pairs_j_tensor
 
+    def _compute_lambda_weight_with_scores(self, scores, labels, idx_i, idx_j):
+        """
+        Compute the lambda weight (|ΔnDCG|) for swapping documents at positions i and j.
+        Uses model scores to determine current ranking, then computes NDCG change.
+        
+        Args:
+            scores: array of model scores for all documents in the query
+            labels: array of relevance labels for all documents in the query
+            idx_i: index of document i (should have higher relevance)
+            idx_j: index of document j (should have lower relevance)
+        
+        Returns:
+            Absolute change in NDCG from swapping positions i and j
+        """
+        # Compute NDCG of current ranking
+        current_ndcg = ndcg_score(labels.reshape(1, -1), scores.reshape(1, -1), k=None)
+        
+        # Create swapped scores by swapping the scores of documents i and j
+        swapped_scores = scores.copy()
+        swapped_scores[idx_i], swapped_scores[idx_j] = swapped_scores[idx_j], swapped_scores[idx_i]
+        
+        # Compute NDCG after swap
+        swapped_ndcg = ndcg_score(labels.reshape(1, -1), swapped_scores.reshape(1, -1), k=None)
+        
+        # Return absolute change
+        delta_ndcg = abs(current_ndcg - swapped_ndcg)
+        
+        return delta_ndcg
+
+    def _compute_and_cache_lambda_weights(self):
+        """
+        Pre-compute lambda weights for all document pairs in all queries.
+        This is called once every 50 epochs to populate the lambda_weights_cache.
+        """
+        self.lambda_weights_cache = {}
+        
+        self.diffusion.eval()
+        print(f"  Pre-computing lambda weights for {len(self.train_data_by_qid)} queries...")
+        
+        with torch.no_grad():
+            for qid, query_data in self.train_data_by_qid.items():
+                n_docs = len(query_data['labels'])
+                if n_docs < 2:
+                    continue
+                
+                # Get model scores for all documents in this query
+                query_features = torch.from_numpy(np.array(query_data['features'])).float().to(self.device)
+                query_features_num = query_features[:, :self.d_numerical]
+                query_labels = np.array(query_data['labels'])
+                
+                # Get scores using diffusion model prediction at t=0
+                b = query_features_num.shape[0]
+                t = torch.zeros(b, device=self.device)
+                sigma_num = self.diffusion.num_schedule.total_noise(t[:, None])
+                
+                # Create masked categorical input
+                x_cat_onehot = torch.zeros(b, self.categories[0]+1, device=self.device)
+                x_cat_onehot[:, self.categories[0]] = 1.0
+                
+                _, pred_cat = self.diffusion._denoise_fn(query_features_num, x_cat_onehot, t, sigma=sigma_num)
+                query_scores = pred_cat[:, 0].cpu().numpy()
+                
+                # Initialize cache for this query
+                if qid not in self.lambda_weights_cache:
+                    self.lambda_weights_cache[qid] = {}
+                
+                # Compute lambda weights for all pairs with different labels
+                for idx_i in range(n_docs):
+                    for idx_j in range(idx_i + 1, n_docs):
+                        label_i = query_labels[idx_i]
+                        label_j = query_labels[idx_j]
+                        
+                        # Skip pairs with equal labels
+                        if label_i == label_j:
+                            continue
+                        
+                        # Ensure document i has higher label than document j
+                        if label_i < label_j:
+                            actual_idx_i, actual_idx_j = idx_j, idx_i
+                        else:
+                            actual_idx_i, actual_idx_j = idx_i, idx_j
+                        
+                        # Compute lambda weight
+                        lambda_weight = self._compute_lambda_weight_with_scores(
+                            query_scores, query_labels, actual_idx_i, actual_idx_j
+                        )
+                        lambda_weight = max(lambda_weight, 1e-10)
+                        
+                        # Store in cache (store both orders for easy lookup)
+                        self.lambda_weights_cache[qid][(actual_idx_i, actual_idx_j)] = lambda_weight
+                        self.lambda_weights_cache[qid][(actual_idx_j, actual_idx_i)] = lambda_weight
+        
+        print(f"  Lambda weights cached for {len(self.lambda_weights_cache)} queries")
+
+    def _generate_pairs_with_lambdas(self, batch_size, use_lambda_weights=True):
+        """
+        Generate pairs of documents with lambda weights for LambdaRank-NDCG training.
+        Lambda weights are looked up from the pre-computed cache (no forward passes needed).
+        
+        Args:
+            batch_size: Number of pairs to generate
+            use_lambda_weights: If True, use cached NDCG-based lambda weights. 
+                               If False, use equal weights (RankNet mode)
+        
+        Returns:
+            pairs_i: tensor of higher-ranked documents [batch_size, features]
+            pairs_j: tensor of lower-ranked documents [batch_size, features]
+            lambdas: tensor of lambda weights [batch_size]
+        """
+        if use_lambda_weights and not self.lambda_weights_cache:
+            raise ValueError("lambda_weights_cache is empty. Must compute and cache lambda weights first.")
+        
+        pairs_i = []
+        pairs_j = []
+        lambdas = []
+        
+        if self.train_data_by_qid is None:
+            raise ValueError("train_data_by_qid must be provided for listwise_lambdarank training")
+        
+        qids = list(self.train_data_by_qid.keys())
+        attempts = 0
+        max_attempts = batch_size * 10
+        
+        while len(pairs_i) < batch_size and attempts < max_attempts:
+            attempts += 1
+            qid = random.choice(qids)
+            query_data = self.train_data_by_qid[qid]
+            n_docs = len(query_data['labels'])
+            
+            if n_docs < 2:
+                continue
+            
+            query_labels = np.array(query_data['labels'])
+            
+            # Sample two different documents
+            idx_i, idx_j = random.sample(range(n_docs), 2)
+            label_i = query_labels[idx_i]
+            label_j = query_labels[idx_j]
+            
+            # Skip pairs with equal labels
+            if label_i == label_j:
+                continue
+            
+            # Ensure document i has higher label than document j
+            if label_i < label_j:
+                idx_i, idx_j = idx_j, idx_i
+            
+            if use_lambda_weights:
+                # Look up cached lambda weight (no forward pass needed!)
+                if qid in self.lambda_weights_cache and (idx_i, idx_j) in self.lambda_weights_cache[qid]:
+                    lambda_weight = self.lambda_weights_cache[qid][(idx_i, idx_j)]
+                else:
+                    # Fallback to 1.0 if pair not in cache (shouldn't happen for valid pairs)
+                    lambda_weight = 1.0
+            else:
+                # RankNet mode: use equal weights for all pairs
+                lambda_weight = 1.0
+            
+            pairs_i.append(query_data['features'][idx_i])
+            pairs_j.append(query_data['features'][idx_j])
+            lambdas.append(lambda_weight)
+        
+        if len(pairs_i) < batch_size:
+            print(f"Warning: Only generated {len(pairs_i)} pairs out of {batch_size} requested")
+        
+        return (torch.from_numpy(np.array(pairs_i)).float().to(self.device), 
+                torch.from_numpy(np.array(pairs_j)).float().to(self.device),
+                torch.from_numpy(np.array(lambdas)).float().to(self.device))
+
 
     def _run_step(self, x, closs_weight, dloss_weight):
         x = x.to(self.device)
@@ -217,22 +391,35 @@ class Trainer:
         self.optimizer.step()
         
         return dloss, closs
-    
-    def compute_loss(self, data_iter):
-        curr_dloss = 0.0
-        curr_closs = 0.0
-        curr_count = 0
-        for batch in data_iter:
-            x = batch.float().to(self.device)
-            self.diffusion.eval()
-            with torch.no_grad():
-                batch_dloss, batch_closs = self.diffusion.mixed_loss(x)
-            curr_dloss += batch_dloss.item() * len(x)
-            curr_closs += batch_closs.item() * len(x)
-            curr_count += len(x)
-        mloss = np.around(curr_dloss / curr_count, 4)
-        gloss = np.around(curr_closs / curr_count, 4)
-        return mloss, gloss
+
+    def _run_step_lambdarank(self, x_i, x_j, lambda_weights, closs_weight, dloss_weight):
+        """
+        LambdaRank-NDCG training step using RankNet loss weighted by |ΔnDCG|.
+        x_i: higher-ranked documents [batch_size, d_numerical + 1] (features + label)
+        x_j: lower-ranked documents [batch_size, d_numerical + 1] (features + label)
+        lambda_weights: NDCG-based weights for each pair [batch_size]
+        """
+        x_i = x_i.to(self.device)
+        x_j = x_j.to(self.device)
+        lambda_weights = lambda_weights.to(self.device)
+        
+        self.diffusion.train()
+        self.optimizer.zero_grad()
+        
+        dloss, closs = self.diffusion.mixed_loss_lambdarank(x_i, x_j, lambda_weights)
+        
+        # Combined loss
+        if closs_weight == 0.0:
+            loss = dloss_weight * dloss + closs_weight * closs.detach()
+        elif dloss_weight == 0.0:
+            loss = dloss_weight * dloss.detach() + closs_weight * closs
+        else:
+            loss = dloss_weight * dloss + closs_weight * closs
+        
+        loss.backward()
+        self.optimizer.step()
+        
+        return dloss, closs
 
     def compute_ranking_metrics_by_imputation(self, data, idx):
         # Evaluate on validation and test set to compute NDCG and P
@@ -243,8 +430,8 @@ class Trainer:
         x_cat = data[:, self.d_numerical:].long().to(self.device)
         y_true = data[:, self.d_numerical:].squeeze().cpu().numpy()
         
-        if self.approach == 'pairwise':
-            # For pairwise, get raw logits from model as ranking scores
+        if self.approach in ['pairwise', 'listwise_lambdarank']:
+            # For pairwise/listwise_lambdarank, get raw logits from model as ranking scores
             # Use minimal noise to get clean predictions
             self.diffusion.eval()
             with torch.no_grad():
@@ -296,8 +483,8 @@ class Trainer:
         x_cat = data[:, self.d_numerical:].long().to(self.device)
         y_true = data[:, self.d_numerical:].squeeze().cpu().numpy()
         
-        if self.approach == 'pairwise':
-            # For pairwise, get raw logits from model as ranking scores
+        if self.approach in ['pairwise', 'listwise_lambdarank']:
+            # For pairwise/listwise_lambdarank, get raw logits from model as ranking scores
             # Use minimal noise to get clean predictions
             self.diffusion.eval()
             with torch.no_grad():
@@ -416,6 +603,39 @@ class Trainer:
                     pbar.set_postfix({
                         "lr": curr_lr,
                         "DLoss (RankNet)": np.around(curr_dloss/curr_count, 4),
+                        "CLoss": np.around(curr_closs/curr_count, 4),
+                        "TotalLoss": np.around((curr_dloss * dloss_weight + curr_closs * closs_weight)/curr_count, 4),
+                        "closs_weight": closs_weight,
+                        "dloss_weight": dloss_weight,
+                    })
+            elif self.approach == 'listwise_lambdarank' and self.train_data_by_qid is not None:
+                # For listwise_lambdarank, generate pairs with lambda weights and use LambdaRank loss
+                epoch_1indexed = epoch + 1  # Convert to 1-indexed for strategy logic
+                
+                if epoch_1indexed <= 50:
+                    use_lambda_weights = False
+                    if epoch_1indexed == 1:
+                        print(f"  Using RankNet mode (equal weights) for first 50 epochs")
+                else:
+                    # Check if we need to recompute lambda weights (at epochs 51, 101, 151, ...)
+                    if (epoch_1indexed - 51) % 50 == 0:  # epochs 51, 101, 151, ...
+                        print(f"  Epoch {epoch_1indexed}: Computing and caching lambda weights (will be used for epochs {epoch_1indexed}-{epoch_1indexed+49})")
+                        self._compute_and_cache_lambda_weights()
+                    
+                    use_lambda_weights = True
+                
+                num_batches = max(1, len(self.train_data) // self.batch_size)
+                pbar = tqdm(range(num_batches), desc=f"Epoch {epoch+1}/{self.steps}")
+                for _ in pbar:
+                    x_i, x_j, lambda_weights = self._generate_pairs_with_lambdas(self.batch_size, use_lambda_weights=use_lambda_weights)
+                    batch_dloss, batch_closs = self._run_step_lambdarank(x_i, x_j, lambda_weights, closs_weight, dloss_weight)
+                    curr_dloss += batch_dloss.item() * self.batch_size
+                    curr_closs += batch_closs.item() * self.batch_size
+                    curr_count += self.batch_size
+                    loss_name = "DLoss (LambdaRank)" if use_lambda_weights else "DLoss (RankNet)"
+                    pbar.set_postfix({
+                        "lr": curr_lr,
+                        loss_name: np.around(curr_dloss/curr_count, 4),
                         "CLoss": np.around(curr_closs/curr_count, 4),
                         "TotalLoss": np.around((curr_dloss * dloss_weight + curr_closs * closs_weight)/curr_count, 4),
                         "closs_weight": closs_weight,

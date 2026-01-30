@@ -32,7 +32,7 @@ def main(args):
     
     if args.approach == 'pointwise':
         categories = np.array([2])
-    elif args.approach == 'pairwise':
+    elif args.approach in ['pairwise', 'listwise_lambdarank']:
         categories = np.array([5]) if 'MSLR' in dataset else np.array([3])
     
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
@@ -164,7 +164,7 @@ def main(args):
     
     # For pairwise/listwise training, organize data by query ID
     train_data_by_qid = None
-    if args.approach == 'pairwise':
+    if args.approach in ['pairwise', 'listwise_lambdarank']:
         train_data_by_qid = {}
         for i in range(len(X_train)):
             qid = idx_train[i]
