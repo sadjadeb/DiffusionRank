@@ -26,7 +26,7 @@ class Trainer:
             self, diffusion, train_data, val_data, idx_val, test_data, idx_test, 
             d_numerical, categories, logger, 
             lr, weight_decay, steps, batch_size, check_val_every,
-            sample_batch_size, model_save_path, result_save_path,
+            sample_batch_size, model_save_path,
             num_samples_to_generate=None,
             lr_scheduler='reduce_lr_on_plateau',
             reduce_lr_patience=100, factor=0.9, 
@@ -97,7 +97,6 @@ class Trainer:
         self.device = device
         self.raw_data_dir = raw_data_dir
         self.model_save_path = model_save_path
-        self.result_save_path = result_save_path
         self.ckpt_path = ckpt_path
         if self.ckpt_path is not None:
             state_dicts = torch.load(self.ckpt_path, map_location=self.device)

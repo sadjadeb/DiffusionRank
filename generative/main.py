@@ -84,21 +84,9 @@ def main(args):
     
 
     ## Creat model_save and result paths
-    model_save_path, result_save_path = None, None
-    if args.mode == 'train':
-        model_save_path = 'debug/ckpt' if args.debug else f'{curr_dir}/ckpt/{dataset}/{exp_name}'
-        result_save_path = model_save_path.replace('ckpt', 'result')  #i.e., f'{curr_dir}/results/{dataname}/{exp_name}'
-    elif args.mode == 'test':
-        if args.report:
-            result_save_path = f"eval/report_runs/{exp_name}/{dataset}"
-        else:
-            result_save_path = os.path.dirname(ckpt_path).replace('ckpt', 'result')    # infer the exp_name from the ckpt_name
+    model_save_path =  f'{curr_dir}/ckpt/{dataset}/{exp_name}'
     raw_config['model_save_path'] = model_save_path
-    raw_config['result_save_path'] = result_save_path
-    if model_save_path is not None:
-        os.makedirs(model_save_path, exist_ok=True)
-    if result_save_path is not None:
-        os.makedirs(result_save_path, exist_ok=True)
+    os.makedirs(model_save_path, exist_ok=True)
     
     ## Make everything determinstic if needed
     raw_config['deterministic'] = args.deterministic
@@ -196,12 +184,10 @@ def main(args):
     model = Model(backbone, **raw_config['diffusion_params']['edm_params'])
     model.to(device)
     
-    if args.impute:
-        raw_config['diffusion_params']['num_timesteps'] = 1
-
     if not args.non_learnable_schedule:
         raw_config['diffusion_params']['scheduler'] = 'power_mean_per_column'
         raw_config['diffusion_params']['cat_scheduler'] = 'log_linear_per_column'
+    
     diffusion = UnifiedCtimeDiffusion(
         num_classes=categories,
         num_numerical_features=d_numerical,
@@ -244,7 +230,6 @@ def main(args):
         sample_batch_size=sample_batch_size,
         num_samples_to_generate=num_samples_to_generate,
         model_save_path=raw_config['model_save_path'],
-        result_save_path=raw_config['result_save_path'],
         device=device,
         ckpt_path=ckpt_path,
         is_finetune=args.finetune,
