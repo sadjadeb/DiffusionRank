@@ -6,8 +6,7 @@ from utils import set_all_seeds
 import argparse
 
 # Set random seeds for reproducibility
-seed = 42
-set_all_seeds(seed)
+set_all_seeds()
 
 
 def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path, info):

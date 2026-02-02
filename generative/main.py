@@ -4,7 +4,7 @@ import os
 import pickle
 import random
 import numpy as np
-from tabdiff.modules.main_modules import UniModMLP, UniModOnlyMLP
+from tabdiff.modules.main_modules import UniModOnlyMLP
 from tabdiff.modules.main_modules import Model
 from tabdiff.models.unified_ctime_diffusion import UnifiedCtimeDiffusion
 from tabdiff.trainer import Trainer
@@ -14,6 +14,7 @@ import argparse
 import warnings
 import wandb
 from sklearn.preprocessing import QuantileTransformer
+from utils import set_all_seeds
 
 warnings.filterwarnings('ignore')
 
@@ -91,22 +92,8 @@ def main(args):
     ## Make everything determinstic if needed
     raw_config['deterministic'] = args.deterministic
     if args.deterministic:
-        print("DETERMINISTIC MODE is enabled!!!")
-        seed = 42
-        ## Set global random seeds
-        torch.manual_seed(seed)
-        random.seed(seed)
-        np.random.seed(seed)
-
-        ## Ensure deterministic CUDA operations
-        os.environ['PYTHONHASHSEED'] = '42'
-        os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'  # or ':16:8'
-        torch.use_deterministic_algorithms(True)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed(seed)
-            torch.cuda.manual_seed_all(seed)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
+        # Set random seeds for reproducibility
+        set_all_seeds()
     
     ## Load training data
     raw_config['train']['main']['steps'] = args.steps

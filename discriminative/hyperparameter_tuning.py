@@ -11,8 +11,8 @@ from model import DNN
 from data_loader import DataLoaderTrain, DataLoaderTest
 from utils import set_all_seeds, calculate_metrics
 
-seed = 42
-set_all_seeds(seed)
+# Set random seeds for reproducibility
+set_all_seeds()
 
 approach = 'pointwise' # ['pointwise', 'pairwise']
 dataset = 'MQ2007' # ['MQ2007', 'MQ2008', 'MSLR-Web10K', 'MSLR-Web30K']

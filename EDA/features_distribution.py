@@ -6,7 +6,7 @@ from utils import set_all_seeds
 from tqdm import trange
 
 # Set the random seed for reproducibility
-set_all_seeds(42)
+set_all_seeds()
 
 dataset_name = 'MQ2007'
 

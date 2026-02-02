@@ -5,13 +5,19 @@ import torch.backends.cudnn as cudnn
 from sklearn.metrics import ndcg_score
 
 
-def set_all_seeds(seed):
+def set_all_seeds(seed = 42):
+    # Set global random seeds
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    cudnn.deterministic = True
-    cudnn.benchmark = False
+
+    # Ensure deterministic CUDA operations
+    torch.use_deterministic_algorithms(True)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     
 
 class EarlyStopping:

@@ -5,9 +5,8 @@ from sklearn.preprocessing import QuantileTransformer
 import argparse
 from utils import set_all_seeds, calculate_metrics
 
-# Set seed
-seed = 42
-set_all_seeds(seed)
+# Set random seeds for reproducibility
+set_all_seeds()
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Run XGBoost Experiment')

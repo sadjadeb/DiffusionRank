@@ -11,8 +11,8 @@ from copy import deepcopy
 import argparse
 
 
-seed = 42
-set_all_seeds(seed)
+# Set random seeds for reproducibility
+set_all_seeds()
 
 # get k from command line arguments
 parser = argparse.ArgumentParser(description='Train and test a pointwise neural network with noisy data for Learning-to-Rank tasks')
