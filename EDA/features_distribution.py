@@ -9,6 +9,7 @@ from tqdm import trange
 set_all_seeds()
 
 dataset_name = 'MQ2007'
+k = 1.0
 
 # Load the data
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
