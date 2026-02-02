@@ -18,6 +18,9 @@ from utils import set_all_seeds
 
 warnings.filterwarnings('ignore')
 
+# Set the random seed for reproducibility
+seed = 42
+set_all_seeds(seed)
 
 def main(args):
     device = args.device
@@ -88,12 +91,6 @@ def main(args):
     model_save_path =  f'checkpoints/{dataset}/{exp_name}'
     raw_config['model_save_path'] = model_save_path
     os.makedirs(model_save_path, exist_ok=True)
-    
-    ## Make everything determinstic if needed
-    raw_config['deterministic'] = args.deterministic
-    if args.deterministic:
-        # Set random seeds for reproducibility
-        set_all_seeds()
     
     ## Load training data
     raw_config['train']['main']['steps'] = args.steps
@@ -257,7 +254,6 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('--no_wandb', action='store_true', help='disable wandb')
     parser.add_argument('--exp_name', type=str, default=None, help='Experiment name, used to name log directories and the wandb run name')
-    parser.add_argument('--deterministic', action='store_true', help='Whether to make the entire process deterministic, i.e., fix global random seeds')
     parser.add_argument('--approach', type=str, default='pointwise', choices=['pointwise', 'pairwise', 'listwise_lambdarank'], help='Training approach')
     
     parser.add_argument('--batch_size', type=int, default=4096, help='Batch size for training and evaluation')

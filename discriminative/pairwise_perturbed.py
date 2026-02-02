@@ -12,7 +12,8 @@ import argparse
 import random
 
 # Set random seeds for reproducibility
-set_all_seeds()
+seed = 42
+set_all_seeds(seed)
 
 # get k from command line arguments
 parser = argparse.ArgumentParser(description='Train and test a pairwise neural network with noisy data for Learning-to-Rank tasks')

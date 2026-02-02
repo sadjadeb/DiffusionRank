@@ -6,7 +6,8 @@ import argparse
 from utils import set_all_seeds, calculate_metrics
 
 # Set random seeds for reproducibility
-set_all_seeds()
+seed = 42
+set_all_seeds(seed)
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Run XGBoost Experiment')
