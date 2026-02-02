@@ -67,7 +67,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Base directory and k values
-    base_dir = os.path.join("..", "data", args.dataset)
+    base_dir = os.path.join("data", args.dataset)
     k_values = [1.0, 0.5, 0.25, 0.0625, 0.015625, 0.00390625]
 
     # Load train data and other files
