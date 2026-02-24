@@ -9,7 +9,7 @@ import argparse
 set_all_seeds()
 
 
-def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path, info):
+def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path):
     for k in k_values:
         # Calculate the number of samples to retain
         n_samples = int(len(idx_train) * k)
@@ -32,10 +32,6 @@ def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input
         k_dir = os.path.join(base_dir, "by_fraction", "Fold1", f"k{k}")
         os.makedirs(k_dir, exist_ok=True)
 
-        # Update the train_size in info.json
-        info_updated = info.copy()
-        info_updated["train_size"] = n_samples
-
         # Save the subsampled train data
         np.save(os.path.join(k_dir, "idx_train.npy"), idx_train_k)
         np.save(os.path.join(k_dir, "X_num_train.npy"), X_num_train_k)
@@ -51,10 +47,6 @@ def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input
                          "idx_val.npy", "X_num_val.npy", "y_val.npy"]:
             shutil.copy(os.path.join(input_data_path, filename), os.path.join(k_dir, filename))
 
-        # Save the updated info.json
-        with open(os.path.join(k_dir, "info.json"), "w") as f:
-            json.dump(info_updated, f)
-            
         print(f"Created {n_samples} samples for k={k} in {k_dir}")
         print(f"Saved {len(idx_train_non_k)} non-sampled elements")
 
@@ -75,7 +67,4 @@ if __name__ == "__main__":
     X_num_train = np.load(os.path.join(input_data_path, "X_num_train.npy"))
     y_train = np.load(os.path.join(input_data_path, "y_train.npy"))
 
-    with open(os.path.join(input_data_path, "info.json"), "r") as f:
-        info = json.load(f)
-    
-    create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path, info)
+    create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path)
