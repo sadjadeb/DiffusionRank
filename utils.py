@@ -12,7 +12,6 @@ def set_all_seeds(seed = 42):
     torch.manual_seed(seed)
 
     # Ensure deterministic CUDA operations
-    torch.use_deterministic_algorithms(True)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
