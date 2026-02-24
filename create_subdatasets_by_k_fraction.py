@@ -9,7 +9,7 @@ import argparse
 set_all_seeds()
 
 
-def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path):
+def create_subsamples(k_values, idx_train, X_num_train, y_train, data_dir, input_data_path):
     for k in k_values:
         # Calculate the number of samples to retain
         n_samples = int(len(idx_train) * k)
@@ -29,7 +29,7 @@ def create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input
         y_train_non_k = y_train[~to_select]
 
         # Create a new directory for the subsample
-        k_dir = os.path.join(base_dir, "by_fraction", "Fold1", f"k{k}")
+        k_dir = os.path.join(data_dir, "by_fraction", "Fold1", f"k{k}")
         os.makedirs(k_dir, exist_ok=True)
 
         # Save the subsampled train data
@@ -58,13 +58,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Base directory and k values
-    base_dir = os.path.join("data", args.dataset)
+    data_dir = os.path.join("data", args.dataset)
     k_values = [1.0, 0.5, 0.25, 0.0625, 0.015625, 0.00390625]
 
     # Load train data and other files
-    input_data_path = os.path.join(base_dir, "npy", "Fold1")
+    input_data_path = os.path.join(data_dir, "npy", "Fold1")
     idx_train = np.load(os.path.join(input_data_path, "idx_train.npy"))
     X_num_train = np.load(os.path.join(input_data_path, "X_num_train.npy"))
     y_train = np.load(os.path.join(input_data_path, "y_train.npy"))
 
-    create_subsamples(k_values, idx_train, X_num_train, y_train, base_dir, input_data_path)
+    create_subsamples(k_values, idx_train, X_num_train, y_train, data_dir, input_data_path)
