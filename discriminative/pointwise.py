@@ -196,7 +196,7 @@ if __name__ == '__main__':
             # Evaluate on validation and test sets
             val_metrics = test(net, val_reader_iter)
             test_metrics = test(net, test_reader_iter)
-            print(f'epoch: {epoch}, train_loss: {train_loss}, val_loss: {val_metrics["loss"]}, val_map: {val_metrics["map"]}, val_ndcg: {val_metrics["ndcg"]}, test_loss: {test_metrics["loss"]}, test_map: {test_metrics["map"]}, test_ndcg: {test_metrics["ndcg"]}')
+            print(f'epoch: {epoch}, train_loss: {(train_loss or 0.0):.6f}, val_loss: {val_metrics["loss"]:.6f}, val_map: {val_metrics["map"]:.6f}, val_ndcg: {val_metrics["ndcg"]:.6f}, test_loss: {test_metrics["loss"]:.6f}, test_map: {test_metrics["map"]:.6f}, test_ndcg: {test_metrics["ndcg"]:.6f}')
             wandb.log({'loss/train_d_loss': train_loss,
                        'ranking_metrics/val_ndcg': val_metrics["ndcg"],
                        'ranking_metrics/val_map': val_metrics["map"],

@@ -17,7 +17,7 @@ seed = 42
 set_all_seeds(seed)
 
 # get k from command line arguments
-parser = argparse.ArgumentParser(description='Train and test a LambdaRank-NDCG neural network for Learning-to-Rank tasks')
+parser = argparse.ArgumentParser(description='Train and test a listwise neural network for Learning-to-Rank tasks')
 parser.add_argument('--dataset', type=str, required=True, choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment')
 parser.add_argument('--task', type=str, choices=['train', 'test'], help='Task to run: train or test') 
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
@@ -48,7 +48,7 @@ num_hidden_nodes = args.num_hidden_nodes
 batch_size = 4096
 
 wandb.init(project=f"DiffusionRank_{dataset}", 
-           name=f"disc_lambdarank_ndcg_k{k}" + (f"_{args.exp_name}" if args.exp_name else ""), 
+           name=f"disc_listwise_k{k}" + (f"_{args.exp_name}" if args.exp_name else ""), 
            mode='disabled' if args.no_wandb else 'online')
 wandb.config.update({
     'features_count': features_count,
@@ -114,7 +114,7 @@ test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
 # Create model and optimizer
-net = DNN(input_dim=features_count, approach='pairwise', num_hidden_nodes=num_hidden_nodes, dropout_rate=dropout_rate).to(device)
+net = DNN(input_dim=features_count, approach='listwise', num_hidden_nodes=num_hidden_nodes, dropout_rate=dropout_rate).to(device)
 optimizer = optim.AdamW(net.parameters(), lr=learning_rate)
 
 # Cache for lambda weights
@@ -405,16 +405,17 @@ if __name__ == '__main__':
     
     if args.task == 'train':
         print('Start training the model...')
+        
         best_ndcg = float('-inf')
         best_model_state = None
         for epoch in range(num_epochs+1):
             # Train (skip actual training on epoch 0 for baseline)
-            train_loss = train(net, epoch) if epoch > 0 else None
+            train_loss = train(net) if epoch > 0 else 0.0
             
             # Evaluate on validation and test sets
             val_metrics = test(net, val_reader_iter)
             test_metrics = test(net, test_reader_iter)
-            print(f'epoch: {epoch}, train_loss: {train_loss}, val_map: {val_metrics["map"]}, val_ndcg: {val_metrics["ndcg"]}, test_map: {test_metrics["map"]}, test_ndcg: {test_metrics["ndcg"]}')
+            print(f'epoch: {epoch}, train_loss: {(train_loss or 0.0):.6f}, val_map: {val_metrics["map"]:.6f}, val_ndcg: {val_metrics["ndcg"]:.6f}, test_map: {test_metrics["map"]:.6f}, test_ndcg: {test_metrics["ndcg"]:.6f}')            
             wandb.log({'loss/train_d_loss': train_loss,
                        'ranking_metrics/val_ndcg': val_metrics["ndcg"],
                        'ranking_metrics/val_map': val_metrics["map"],
@@ -426,8 +427,8 @@ if __name__ == '__main__':
                 best_ndcg = val_metrics["ndcg"]
                 best_model_state = deepcopy(net.state_dict())
 
-        final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.lambdarank_ndcg.k{k}.{args.exp_name}.final.pt')
-        best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.lambdarank_ndcg.k{k}.{args.exp_name}.best.pt')
+        final_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.listwise.k{k}.{args.exp_name}.final.pt')
+        best_model_save_path = os.path.join(project_root, 'discriminative', 'checkpoints', f'ltr.{dataset}.listwise.k{k}.{args.exp_name}.best.pt')
 
         # Save model
         torch.save(net.state_dict(), final_model_save_path)
@@ -443,7 +444,7 @@ if __name__ == '__main__':
     print(f'Best Model Performance: test_map: {test_metrics["map"]}, test_ndcg: {test_metrics["ndcg"]}')
         
     # Save results
-    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.lambdarank_ndcg.k{k}.{args.exp_name}.best.txt')
+    results_save_path = os.path.join(project_root, 'discriminative', 'predictions', f'ltr.{dataset}.listwise.k{k}.{args.exp_name}.best.txt')
     with open(results_save_path, 'w') as f:
         f.write('qid true_label pred_label\n')
         for qid, values in test_metrics["results"].items():
