@@ -119,10 +119,10 @@ print(f"Organized training data into {num_queries_after} queries with multiple d
 X_val = np.concatenate((X_val, np.zeros((X_val.shape[0], 1))), axis=1)
 X_test = np.concatenate((X_test, np.zeros((X_test.shape[0], 1))), axis=1)
 
-# Create a dataloader for the validation data using pytorch
+# Create a dataloader for the validation and test data
 val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(idx_val).long())
 val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
-# Create a dataloader for the test data using pytorch
+
 test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).long(), torch.from_numpy(idx_test).long())
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 

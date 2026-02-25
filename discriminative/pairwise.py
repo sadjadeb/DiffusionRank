@@ -106,10 +106,10 @@ num_queries_after = len(train_data_by_qid)
 num_filtered = num_queries_before - num_queries_after
 print(f"Organized training data into {num_queries_after} queries with multiple documents (filtered out {num_filtered} queries with only one document)")
 
-# Create a dataloader for the validation data using pytorch
+# Create a dataloader for the validation and test data
 val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(idx_val).long())
 val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
-# Create a dataloader for the test data using pytorch
+
 test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).long(), torch.from_numpy(idx_test).long())
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
@@ -136,7 +136,7 @@ class RankNetLoss(nn.Module):
         """
         # Compute the difference
         diff = scores_i - scores_j
-        # RankNet loss: -log(sigmoid(diff))
+        # RankNet loss: -log(sigmoid(s_i - s_j))
         loss = -torch.log(torch.sigmoid(diff) + 1e-10).mean()
         return loss
 

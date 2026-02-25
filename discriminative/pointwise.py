@@ -99,13 +99,13 @@ if data_normalization == 'quantile':
     X_val = normalizer.transform(X_val)
     X_test = normalizer.transform(X_test)
 
-# Create a dataloader for the training data using pytorch
+# Create a dataloader for the train, val, and test data
 train_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_train).float().to(device), torch.from_numpy(bin_y_train).long().to(device))
 train_reader_iter = torch.utils.data.DataLoader(train_reader, batch_size=batch_size, shuffle=True)
-# Create a dataloader for the validation data using pytorch
+
 val_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_val).float().to(device), torch.from_numpy(y_val).long(), torch.from_numpy(bin_y_val).long(), torch.from_numpy(idx_val).long())
 val_reader_iter = torch.utils.data.DataLoader(val_reader, batch_size=batch_size, shuffle=False)
-# Create a dataloader for the test data using pytorch
+
 test_reader = torch.utils.data.TensorDataset(torch.from_numpy(X_test).float().to(device), torch.from_numpy(y_test).long(), torch.from_numpy(bin_y_test).long(), torch.from_numpy(idx_test).long())
 test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_size, shuffle=False)
 
