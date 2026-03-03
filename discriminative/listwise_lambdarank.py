@@ -90,7 +90,7 @@ if data_normalization == 'quantile':
     X_val = normalizer.transform(X_val)
     X_test = normalizer.transform(X_test)
 
-# Organize training data by query ID for efficient pair sampling and NDCG computation
+# Organize training data by query ID for efficient query-level processing
 train_data_by_qid = {}
 for i in range(len(X_train)):
     qid = idx_train[i]
@@ -99,7 +99,7 @@ for i in range(len(X_train)):
     train_data_by_qid[qid]['features'].append(X_train[i])
     train_data_by_qid[qid]['labels'].append(y_train[i])
 
-# Filter out queries with only one document (can't form pairs)
+# Filter out queries with only one document (can't form pairs or compute NDCG meaningful swaps)
 num_queries_before = len(train_data_by_qid)
 train_data_by_qid = {qid: data for qid, data in train_data_by_qid.items() if len(data['labels']) > 1}
 num_queries_after = len(train_data_by_qid)
@@ -117,40 +117,65 @@ test_reader_iter = torch.utils.data.DataLoader(test_reader, batch_size=batch_siz
 net = DNN(input_dim=features_count, approach='listwise', num_hidden_nodes=num_hidden_nodes, dropout_rate=dropout_rate).to(device)
 optimizer = optim.AdamW(net.parameters(), lr=learning_rate)
 
-# Cache for lambda weights
-# Structure: {qid: {(idx_i, idx_j): lambda_weight, ...}, ...}
-# Computed once every 50 epochs to avoid expensive forward passes
-lambda_weights_cache = {}
-
-
+# LambdaRank loss function
 class LambdaRankLoss(nn.Module):
     """
-    LambdaRank loss function for pairwise learning to rank.
-    Similar to RankNet but weighted by NDCG impact (lambda).
-    Uses full ranking NDCG (no cutoff) as in standard LambdaRank.
-    
-    Reference: Burges et al. "Learning to Rank with Nonsmooth Cost Functions" (NIPS 2006)
+    LambdaRank loss function.
+    Computes pairwise RankNet loss scaled by the absolute change in NDCG.
     """
     def __init__(self):
         super(LambdaRankLoss, self).__init__()
     
-    def forward(self, scores_i, scores_j, lambda_weights):
-        """
-        Args:
-            scores_i: scores for documents that should be ranked higher (shape: [batch_size])
-            scores_j: scores for documents that should be ranked lower (shape: [batch_size])
-            lambda_weights: NDCG-based weights for each pair (shape: [batch_size])
-        Returns:
-            loss: LambdaRank loss
-        """
-        # Compute the difference
-        diff = scores_i - scores_j
-        # RankNet loss: -log(sigmoid(diff))
-        ranknet_loss = -torch.log(torch.sigmoid(diff) + 1e-10)
-        # Weight by lambda (NDCG impact)
-        weighted_loss = (lambda_weights * ranknet_loss).mean()
-        return weighted_loss
+    def forward(self, scores, labels):
+        # Ensure 1D tensors
+        scores = scores.squeeze()
+        labels = labels.squeeze()
+        
+        num_docs_of_query = scores.shape[0]
+        if num_docs_of_query < 2:
+            return torch.tensor(0.0, device=scores.device, requires_grad=True)
 
+        # Pairwise differences
+        scores_diff = scores.unsqueeze(1) - scores.unsqueeze(0)
+        labels_diff = labels.unsqueeze(1) - labels.unsqueeze(0)
+        
+        # Mask for valid pairs where doc i is more relevant than doc j
+        S_ij = (labels_diff > 0).float()
+        
+        if S_ij.sum() == 0:
+            return torch.tensor(0.0, device=scores.device, requires_grad=True)
+
+        # Calculate ideal DCG (IDCG)
+        ideal_sort_idx = torch.argsort(labels, descending=True)
+        ideal_ranks = torch.zeros_like(ideal_sort_idx, dtype=torch.float32, device=scores.device)
+        ideal_ranks[ideal_sort_idx] = torch.arange(1, num_docs_of_query + 1, dtype=torch.float32, device=scores.device)
+        
+        gains = torch.pow(2, labels) - 1
+        ideal_discounts = 1 / torch.log2(ideal_ranks + 1)
+        idcg = torch.sum(gains * ideal_discounts)
+        
+        if idcg == 0:
+            return torch.tensor(0.0, device=scores.device, requires_grad=True)
+
+        # Calculate current ranks based on model predictions
+        sort_idx = torch.argsort(scores, descending=True)
+        ranks = torch.zeros_like(sort_idx, dtype=torch.float32, device=scores.device)
+        ranks[sort_idx] = torch.arange(1, num_docs_of_query + 1, dtype=torch.float32, device=scores.device)
+        
+        # Compute Delta NDCG for all pairs
+        discounts = 1 / torch.log2(ranks + 1)
+        delta_gains = torch.abs(gains.unsqueeze(1) - gains.unsqueeze(0)) # |[N, 1] - [1, N]|
+        delta_discounts = torch.abs(discounts.unsqueeze(1) - discounts.unsqueeze(0))
+        delta_ndcg = (delta_gains * delta_discounts) / idcg
+
+        # Compute LambdaRank Loss: Delta NDCG * RankNet Loss
+        # RankNet loss: -log(sigmoid(s_i - s_j))
+        ranknet_loss = -torch.log(torch.sigmoid(scores_diff) + 1e-10)
+        loss_matrix = delta_ndcg * ranknet_loss
+        
+        # Sum over valid pairs and average by number of positive pairs
+        loss = torch.sum(loss_matrix * S_ij) / S_ij.sum()
+        return loss
 
 criterion = LambdaRankLoss()
 
@@ -164,214 +189,44 @@ if args.checkpoint:
     print(f"Weights loaded from checkpoint: {args.checkpoint}")
 
 
-def compute_lambda_weight_with_scores(scores, labels, idx_i, idx_j):
-    """
-    Compute the lambda weight (|ΔnDCG|) for swapping documents at positions i and j.
-    Uses model scores to determine current ranking, then computes NDCG change.
-    
-    Args:
-        scores: array of model scores for all documents in the query
-        labels: array of relevance labels for all documents in the query
-        idx_i: index of document i (should have higher relevance)
-        idx_j: index of document j (should have lower relevance)
-    
-    Returns:
-        Absolute change in NDCG from swapping positions i and j
-    """
-    # Compute NDCG of current ranking
-    current_ndcg = ndcg_score(labels.reshape(1, -1), scores.reshape(1, -1), k=None)
-    
-    # Create swapped scores by swapping the scores of documents i and j
-    swapped_scores = scores.copy()
-    swapped_scores[idx_i], swapped_scores[idx_j] = swapped_scores[idx_j], swapped_scores[idx_i]
-    
-    # Compute NDCG after swap
-    swapped_ndcg = ndcg_score(labels.reshape(1, -1), swapped_scores.reshape(1, -1), k=None)
-    
-    # Return absolute change
-    delta_ndcg = abs(current_ndcg - swapped_ndcg)
-    
-    return delta_ndcg
-
-
-def compute_and_cache_lambda_weights(qid_data, device):
-    """
-    Pre-compute lambda weights for all document pairs in all queries.
-    This is called once every 50 epochs to populate the lambda_weights_cache.
-    
-    Args:
-        qid_data: Dictionary mapping query IDs to document features and labels
-        device: PyTorch device
-    
-    Returns:
-        Dictionary mapping (qid, idx_i, idx_j) to lambda weights
-    """
-    global lambda_weights_cache
-    lambda_weights_cache = {}
-    
-    net.eval()
-    print(f"  Pre-computing lambda weights for {len(qid_data)} queries...")
-    
-    with torch.no_grad():
-        for qid, query_data in qid_data.items():
-            n_docs = len(query_data['labels'])
-            if n_docs < 2:
-                continue
-            
-            # Get model scores for all documents in this query
-            query_features = torch.from_numpy(np.array(query_data['features'])).float().to(device)
-            query_scores = net(query_features).squeeze().cpu().numpy()
-            query_labels = np.array(query_data['labels'])
-            
-            # Initialize cache for this query
-            if qid not in lambda_weights_cache:
-                lambda_weights_cache[qid] = {}
-            
-            # Compute lambda weights for all pairs with different labels
-            for idx_i in range(n_docs):
-                for idx_j in range(idx_i + 1, n_docs):
-                    label_i = query_labels[idx_i]
-                    label_j = query_labels[idx_j]
-                    
-                    # Skip pairs with equal labels
-                    if label_i == label_j:
-                        continue
-                    
-                    # Ensure document i has higher label than document j
-                    if label_i < label_j:
-                        actual_idx_i, actual_idx_j = idx_j, idx_i
-                    else:
-                        actual_idx_i, actual_idx_j = idx_i, idx_j
-                    
-                    # Compute lambda weight
-                    lambda_weight = compute_lambda_weight_with_scores(
-                        query_scores, query_labels, actual_idx_i, actual_idx_j
-                    )
-                    lambda_weight = max(lambda_weight, 1e-10)
-                    
-                    # Store in cache (store both orders for easy lookup)
-                    lambda_weights_cache[qid][(actual_idx_i, actual_idx_j)] = lambda_weight
-                    lambda_weights_cache[qid][(actual_idx_j, actual_idx_i)] = lambda_weight
-    
-    print(f"  Lambda weights cached for {len(lambda_weights_cache)} queries")
-
-
-def generate_pairs_with_lambdas(qid_data, batch_size, device, use_lambda_weights=True):
-    """
-    Generate pairs of documents with lambda weights for LambdaRank training.
-    Lambda weights are looked up from the pre-computed cache (no forward passes needed).
-    
-    Args:
-        qid_data: Dictionary mapping query IDs to document features and labels
-        batch_size: Number of pairs to generate
-        device: PyTorch device
-        use_lambda_weights: If True, use cached NDCG-based lambda weights. If False, use equal weights (RankNet mode)
-    """
-    global lambda_weights_cache
-    
-    if use_lambda_weights and not lambda_weights_cache:
-        raise ValueError("lambda_weights_cache is empty. Must compute and cache lambda weights first.")
-    
-    pairs_i = []
-    pairs_j = []
-    lambdas = []
-    
-    qids = list(qid_data.keys())
-    attempts = 0
-    max_attempts = batch_size * 10
-    
-    while len(pairs_i) < batch_size and attempts < max_attempts:
-        attempts += 1
-        qid = random.choice(qids)
-        query_data = qid_data[qid]
-        n_docs = len(query_data['labels'])
-        
-        if n_docs < 2:
-            continue
-        
-        query_labels = np.array(query_data['labels'])
-        
-        # Sample two different documents
-        idx_i, idx_j = random.sample(range(n_docs), 2)
-        label_i = query_labels[idx_i]
-        label_j = query_labels[idx_j]
-        
-        # Skip pairs with equal labels
-        if label_i == label_j:
-            continue
-        
-        # Ensure document i has higher label than document j
-        if label_i < label_j:
-            idx_i, idx_j = idx_j, idx_i
-        
-        if use_lambda_weights:
-            # Look up cached lambda weight (no forward pass needed!)
-            if qid in lambda_weights_cache and (idx_i, idx_j) in lambda_weights_cache[qid]:
-                lambda_weight = lambda_weights_cache[qid][(idx_i, idx_j)]
-            else:
-                # Fallback to 1.0 if pair not in cache (shouldn't happen for valid pairs)
-                lambda_weight = 1.0
-        else:
-            # RankNet mode: use equal weights for all pairs
-            lambda_weight = 1.0
-        
-        pairs_i.append(query_data['features'][idx_i])
-        pairs_j.append(query_data['features'][idx_j])
-        lambdas.append(lambda_weight)
-    
-    if len(pairs_i) < batch_size:
-        print(f"Warning: Only generated {len(pairs_i)} pairs out of {batch_size} requested")
-        
-    if use_lambda_weights:
-        print(f"Lambda weights stats - mean: {np.mean(lambdas)}, median: {np.median(lambdas)}, max: {np.max(lambdas)}, min: {np.min(lambdas)}")
-    
-    return (torch.from_numpy(np.array(pairs_i)).float().to(device), 
-            torch.from_numpy(np.array(pairs_j)).float().to(device),
-            torch.from_numpy(np.array(lambdas)).float().to(device))
-
-
-def train(net, epoch):
-    global lambda_weights_cache
-    
+def train(net):
     net.train()
     train_loss = 0.0
-    num_batches = 0
+    num_valid_queries = 0
+    doc_count = 0
     
-    if epoch <= 50:
-        use_lambda_weights = False
-    else:
-        # Check if we need to recompute lambda weights (at epochs 51, 101, 151, ...)
-        if (epoch - 51) % 50 == 0:  # epochs 51, 101, 151, ...
-            print(f"  Epoch {epoch}: Computing and caching lambda weights (will be used for epochs {epoch}-{epoch+49})")
-            compute_and_cache_lambda_weights(train_data_by_qid, device)
-        
-        use_lambda_weights = True
+    # Shuffle queries for the epoch
+    qids = list(train_data_by_qid.keys())
+    random.shuffle(qids)
     
-    # Print mode info on first epoch
-    if epoch == 1:
-        print(f"  Using RankNet mode (equal weights) for first 50 epochs")
+    optimizer.zero_grad()
     
-    num_batches_per_epoch = max(1, len(X_train) // batch_size)
-    for _ in range(num_batches_per_epoch):
-        features_i, features_j, lambda_weights = generate_pairs_with_lambdas(
-            train_data_by_qid, batch_size, device, use_lambda_weights=use_lambda_weights
-        )
+    for qid in qids:
+        query_data = train_data_by_qid[qid]
+        features = torch.from_numpy(np.array(query_data['features'])).float().to(device)
+        labels = torch.from_numpy(np.array(query_data['labels'])).float().to(device)
         
-        # Get scores for both documents
-        scores_i = net(features_i).squeeze()
-        scores_j = net(features_j).squeeze()
+        scores = net(features).squeeze()
+        loss = criterion(scores, labels)
         
-        # Compute LambdaRank loss (RankNet weighted by lambda)
-        loss = criterion(scores_i, scores_j, lambda_weights)
-        
-        optimizer.zero_grad()
-        loss.backward()
+        if loss.item() > 0:
+            loss.backward()
+            train_loss += loss.item()
+            num_valid_queries += 1
+            
+        # Gradient accumulation to simulate `batch_size` 
+        doc_count += len(labels)
+        if doc_count >= batch_size:
+            optimizer.step()
+            optimizer.zero_grad()
+            doc_count = 0
+            
+    # Step optimizer for any remaining accumulated gradients
+    if doc_count > 0:
         optimizer.step()
-        train_loss += loss.item()
-        num_batches += 1
-    
-    return train_loss / num_batches
-
+        optimizer.zero_grad()
+        
+    return train_loss / max(1, num_valid_queries)
 
 def test(net, data_iter):
     net.eval()
@@ -379,9 +234,12 @@ def test(net, data_iter):
     
     with torch.no_grad():
         for features, labels, qids in data_iter:
-            # Get scores for individual documents
             scores = net(features).squeeze().data.cpu()
             
+            # Handle edge case where batch size is 1 causing scalar squeeze
+            if scores.dim() == 0:
+                scores = scores.unsqueeze(0)
+                
             row_cnt = len(qids)
             for i in range(row_cnt):
                 qid = qids[i].item()
