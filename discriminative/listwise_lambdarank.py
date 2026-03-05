@@ -7,7 +7,6 @@ import wandb
 from utils import set_all_seeds, calculate_metrics
 from model import DNN
 from sklearn.preprocessing import QuantileTransformer
-from sklearn.metrics import ndcg_score
 from copy import deepcopy
 import argparse
 import random
@@ -26,6 +25,7 @@ parser.add_argument('--exp_name', type=str, default=None, help='Experiment name 
 parser.add_argument('--checkpoint', type=str, default=None, help='Path to the model checkpoint to load')
 parser.add_argument('--num_hidden_nodes', type=int, required=True, help='Number of hidden nodes in the model')
 parser.add_argument('--lr', type=float, default=5e-6, help='Learning rate for the optimizer')
+parser.add_argument('--eval_at_k', type=int, default=None, help='Cutoff k for NDCG@k in LambdaRank loss (None = full NDCG)')
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -59,6 +59,7 @@ wandb.config.update({
     'num_hidden_nodes': num_hidden_nodes,
     'batch_size': batch_size,
     'k': k,
+    'eval_at_k': args.eval_at_k,
 })
 
 # Set data paths
@@ -121,19 +122,22 @@ optimizer = optim.AdamW(net.parameters(), lr=learning_rate)
 class LambdaRankLoss(nn.Module):
     """
     LambdaRank loss function.
-    Computes pairwise RankNet loss scaled by the absolute change in NDCG.
+    Computes pairwise RankNet loss scaled by the absolute change in NDCG@k.
+    When topk is None, uses full NDCG (equivalent to k = num_docs).
     """
-    def __init__(self):
+    def __init__(self, topk=None):
         super(LambdaRankLoss, self).__init__()
+        self.topk = topk
     
     def forward(self, scores, labels):
-        # Ensure 1D tensors
         scores = scores.squeeze()
         labels = labels.squeeze()
         
         num_docs_of_query = scores.shape[0]
         if num_docs_of_query < 2:
             return torch.tensor(0.0, device=scores.device, requires_grad=True)
+
+        topk = min(self.topk, num_docs_of_query) if self.topk is not None else num_docs_of_query
 
         # Pairwise differences
         scores_diff = scores.unsqueeze(1) - scores.unsqueeze(0)
@@ -145,13 +149,14 @@ class LambdaRankLoss(nn.Module):
         if S_ij.sum() == 0:
             return torch.tensor(0.0, device=scores.device, requires_grad=True)
 
-        # Calculate ideal DCG (IDCG)
+        # Calculate IDCG@k
         ideal_sort_idx = torch.argsort(labels, descending=True)
         ideal_ranks = torch.zeros_like(ideal_sort_idx, dtype=torch.float32, device=scores.device)
         ideal_ranks[ideal_sort_idx] = torch.arange(1, num_docs_of_query + 1, dtype=torch.float32, device=scores.device)
         
         gains = torch.pow(2, labels) - 1
         ideal_discounts = 1 / torch.log2(ideal_ranks + 1)
+        ideal_discounts = ideal_discounts * (ideal_ranks <= topk).float()
         idcg = torch.sum(gains * ideal_discounts)
         
         if idcg == 0:
@@ -162,9 +167,10 @@ class LambdaRankLoss(nn.Module):
         ranks = torch.zeros_like(sort_idx, dtype=torch.float32, device=scores.device)
         ranks[sort_idx] = torch.arange(1, num_docs_of_query + 1, dtype=torch.float32, device=scores.device)
         
-        # Compute Delta NDCG for all pairs
+        # Compute Delta NDCG@k
         discounts = 1 / torch.log2(ranks + 1)
-        delta_gains = torch.abs(gains.unsqueeze(1) - gains.unsqueeze(0)) # |[N, 1] - [1, N]|
+        discounts = discounts * (ranks <= topk).float()
+        delta_gains = torch.abs(gains.unsqueeze(1) - gains.unsqueeze(0))
         delta_discounts = torch.abs(discounts.unsqueeze(1) - discounts.unsqueeze(0))
         delta_ndcg = (delta_gains * delta_discounts) / idcg
 
@@ -177,7 +183,7 @@ class LambdaRankLoss(nn.Module):
         loss = torch.sum(loss_matrix * S_ij) / S_ij.sum()
         return loss
 
-criterion = LambdaRankLoss()
+criterion = LambdaRankLoss(topk=args.eval_at_k)
 
 # print number of parameters
 num_params = sum(p.numel() for p in net.parameters())
