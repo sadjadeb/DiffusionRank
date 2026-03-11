@@ -1,8 +1,10 @@
 import torch
 import numpy as np
 import random
-import torch.backends.cudnn as cudnn
 from sklearn.metrics import ndcg_score
+from typing import Any, Dict, Union, cast
+from pathlib import Path
+import tomli
 
 
 def set_all_seeds(seed = 42):
@@ -95,3 +97,29 @@ def calculate_metrics(lables_tuples, k=10):
     avgmap = total_map / len(lables_tuples)
     
     return avgndcg, avgmap
+
+
+
+RawConfig = Dict[str, Any]
+_CONFIG_NONE = '__none__'
+
+def _replace(data, condition, value):
+    def do(x):
+        if isinstance(x, dict):
+            return {k: do(v) for k, v in x.items()}
+        elif isinstance(x, list):
+            return [do(y) for y in x]
+        else:
+            return value if condition(x) else x
+
+    return do(data)
+
+
+def unpack_config(config: RawConfig) -> RawConfig:
+    config = cast(RawConfig, _replace(config, lambda x: x == _CONFIG_NONE, None))
+    return config
+
+
+def load_config(path: Union[Path, str]) -> Any:
+    with open(path, 'rb') as f:
+        return unpack_config(tomli.load(f))

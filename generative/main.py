@@ -8,13 +8,12 @@ from tabdiff.modules.main_modules import UniModOnlyMLP
 from tabdiff.modules.main_modules import Model
 from tabdiff.models.unified_ctime_diffusion import UnifiedCtimeDiffusion
 from tabdiff.trainer import Trainer
-import src
 import torch
 import argparse
 import warnings
 import wandb
 from sklearn.preprocessing import QuantileTransformer
-from utils import set_all_seeds
+from utils import set_all_seeds, load_config
 
 warnings.filterwarnings('ignore')
 
@@ -50,7 +49,7 @@ def main(args):
     ## Load configs
     curr_dir = 'tabdiff'
     config_path = f'{curr_dir}/tabdiff_configs.toml'
-    raw_config = src.load_config(config_path)
+    raw_config = load_config(config_path)
     
     print(f"{args.mode.capitalize()} Mode is Enabled")
     num_samples_to_generate = None
