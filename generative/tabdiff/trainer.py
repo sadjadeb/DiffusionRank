@@ -527,10 +527,8 @@ class Trainer:
 
     def run_loop(self):
         closs_weight, dloss_weight = self.c_lambda, self.d_lambda
-        best_loss = np.inf
-        best_ema_loss = np.inf
-        best_val_loss = np.inf
-        best_val_ndcg = -np.inf
+        best_val_loss = np.inf #noqa: F841
+        best_val_ndcg = -np.inf #noqa: F841
         start_time = time.time()
         print_with_bar(f"Starting Training Loop, total number of epoch = {self.steps}")
         # Set up wandb's step metric
@@ -614,7 +612,7 @@ class Trainer:
                 if epoch_1indexed <= 50:
                     use_lambda_weights = False
                     if epoch_1indexed == 1:
-                        print(f"  Using RankNet mode (equal weights) for first 50 epochs")
+                        print("  Using RankNet mode (equal weights) for first 50 epochs")
                 else:
                     # Check if we need to recompute lambda weights (at epochs 51, 101, 151, ...)
                     if (epoch_1indexed - 51) % 50 == 0:  # epochs 51, 101, 151, ...
@@ -731,7 +729,7 @@ class Trainer:
             #     best_val_loss = val_loss
             if val_ndcg > best_val_ndcg:
                 best_val_ndcg = val_ndcg
-                to_remove = glob.glob(os.path.join(self.model_save_path, f"best_model_*"))
+                to_remove = glob.glob(os.path.join(self.model_save_path, "best_model_*"))
                 if to_remove:
                     os.remove(to_remove[0])
                 state_dicts = {

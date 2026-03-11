@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.init as nn_init
@@ -205,9 +204,7 @@ class Transformer(nn.Module):
         return x
 
     def forward(self, x):
-        for layer_idx, layer in enumerate(self.layers):
-            is_last_layer = layer_idx + 1 == len(self.layers)
-
+        for layer in self.layers:
             x_residual = self._start_residual(x, layer, 0)
             x_residual = layer['attention'](
                 # for the last attention, it is enough to process only [CLS]

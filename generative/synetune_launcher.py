@@ -2,18 +2,15 @@
 from syne_tune.tuner import Tuner
 from syne_tune.backend.local_backend import LocalBackend
 from syne_tune.config_space import uniform, loguniform, choice
-from syne_tune.optimizer.baselines import ASHA, ASHACQR, CQR, BOTorch
+from syne_tune.optimizer.baselines import ASHA
 from syne_tune import StoppingCriterion
 import matplotlib.pyplot as plt
 from syne_tune.experiments import load_experiment
-import numpy as np
 
 
 # Define search space for mu and domain_width
 config_space = {
     "bell_mu": uniform(0.0, 1.0),
-    # "bell_sigma": uniform(0.01, 0.8),
-    # "bell_peak": uniform(0.01, 1.0),
     "bell_sigma": loguniform(1e-2, 0.8),
     "bell_peak": loguniform(1e-2, 1.0),
     "dataname": "MQ2008",
@@ -26,10 +23,7 @@ config_space = {
 
 
 # Choose a scheduler/searcher
-# scheduler = BOTorch(config_space=config_space, metric="loss/val_ndcg", do_minimize=False)
 scheduler = ASHA(config_space=config_space, metric="loss/val_ndcg", time_attr="epoch", do_minimize=False, max_t=72000)
-# scheduler = CQR(config_space=config_space, metric="loss/val_ndcg", do_minimize=False)
-# scheduler = ASHABORE(config_space=config_space, metric="loss/val_ndcg", time_attr="epoch", do_minimize=False, max_t=300)
 
 # Create Tuner
 tuner = Tuner(

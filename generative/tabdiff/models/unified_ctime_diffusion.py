@@ -1,10 +1,8 @@
 import torch.nn.functional as F
 import torch
-import math
 import numpy as np
-from tabdiff.models.noise_schedule import *
+from tabdiff.models.noise_schedule import LinearNoise, CosineNoise, PowerMeanNoise, PowerMeanNoise_PerColumn, LogLinearNoise, LogLinearNoise_PerColumn
 from tqdm import tqdm
-from itertools import chain
 
 """
 “Our implementation of the continuous-time masked diffusion is inspired by https://arxiv.org/abs/2406.07524's implementation at [https://github.com/kuleshov-group/mdlm], with modifications to support data distributions that include categorical dimensions of different sizes.”
@@ -311,7 +309,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             )
         
         pbar = tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps)
-        pbar.set_description(f"Sampling Progress")
+        pbar.set_description("Sampling Progress")
         for i in pbar:                  
             z_norm, z_cat, q_xs = self.edm_update(
                 z_norm, z_cat, i, 

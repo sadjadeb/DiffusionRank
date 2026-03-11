@@ -2,7 +2,6 @@ import glob
 import json
 import os
 import pickle
-import random
 import numpy as np
 from tabdiff.modules.main_modules import UniModOnlyMLP
 from tabdiff.modules.main_modules import Model

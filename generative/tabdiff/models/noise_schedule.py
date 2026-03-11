@@ -15,7 +15,7 @@ class Noise(abc.ABC, nn.Module):
   @abc.abstractmethod
   def total_noise(self, t):
     """
-    Total noise ie \int_0^t g(t) dt + g(0)
+    Total noise ie $\\int_0^t g(t) dt + g(0)$
     """
     pass
   
@@ -128,8 +128,6 @@ class PowerMeanNoise_PerColumn(nn.Module):
     t: [batch_size]
     Returns: [batch_size, num_numerical]
     """
-    batch_size = t.size(0)
-
     rho = self.rho()
 
     sigma_min_pow = self.sigma_min ** (1 / rho)  # Shape: [num_numerical]
