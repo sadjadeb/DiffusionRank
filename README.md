@@ -6,6 +6,8 @@ This repository contains the official implementation of **DiffusionRank**, a dif
 
 Traditional Learning-to-Rank methods use discriminative machine learning approaches that model the probability of document relevance given query-document features. DiffusionRank takes an alternative approach by extending [TabDiff](https://github.com/MinkaiXu/TabDiff), a denoising diffusion-based generative model for tabular data, to create generative equivalents of classical discriminative pointwise and pairwise LTR objectives.
 
+![DiffusionRank](DiffusionRank.jpg)
+
 ### Key Features
 
 - **Generative LTR**: Models the full joint distribution over features and relevance labels
