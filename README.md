@@ -24,25 +24,21 @@ DiffusionRank/
 │   │   ├── modules/               # Neural network modules
 │   │   ├── trainer.py             # Training logic
 │   │   └── tabdiff_configs.toml   # Model configurations
-│   ├── src/                       # Data and utility modules
 │   └── synetune_launcher.py       # Hyperparameter tuning
 ├── discriminative/                # Discriminative baseline models
+│   ├── model.py                   # Neural network architecture
 │   ├── pointwise.py               # Pointwise discriminative model
 │   ├── pairwise.py                # Pairwise discriminative model (RankNet)
 │   ├── pointwise_perturbed.py     # Pointwise with perturbed features
 │   ├── pairwise_perturbed.py      # Pairwise with perturbed features
 │   ├── listwise_lambdarank.py     # LambdaRank implementation
-│   └── model.py                   # Neural network architecture
-├── baselines/                     # Additional baselines
 │   └── xgb.py                     # XGBoost baseline
-├── prepare_data/                  # Data preparation scripts
-│   ├── create_subdatasets_by_k_fraction.py
-│   ├── create_feature_subset_dataset.py
-│   └── create_artifical_dataset.py
-├── EDA/                           # Exploratory data analysis
-├── compute_ranking_metrics.py     # Evaluation script
-├── ndcg_significance_test.py      # Statistical significance testing
-└── utils.py                       # Utility functions
+├── EDA/                                  # Exploratory data analysis
+├── ltr_dataset_to_numpy.py               # Convert LTR dataset to numpy arrays
+├── create_subdatasets_by_k_fraction.py   # Create subsamples by fraction for a given dataset
+├── compute_ranking_metrics.py            # Evaluation script
+├── ndcg_significance_test.py             # Statistical significance testing
+└── utils.py                              # Utility functions
 ```
 
 ## Installation
@@ -221,7 +217,7 @@ python ndcg_significance_test.py
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--dataname` | Dataset name (MQ2007, MQ2008, MSLR-WEB10K) | - |
+| `--dataname` | Dataset name (MQ2007, MQ2008, MSLR-WEB10K, MSLR-WEB30K) | - |
 | `--approach` | Training approach (pointwise, pairwise) | pointwise |
 | `--mode` | Mode (train, test) | train |
 | `--steps` | Number of training steps | 15000 |
@@ -232,7 +228,6 @@ python ndcg_significance_test.py
 | `--k` | Fraction of training data to use | 1.0 |
 | `--gpu` | GPU index (-1 for CPU) | 0 |
 | `--no_wandb` | Disable Weights & Biases logging | False |
-| `--deterministic` | Enable deterministic mode | False |
 
 ### Discriminative Models
 
