@@ -10,7 +10,6 @@ import math
 import random
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from sklearn.metrics import ndcg_score
 
 
 BAR = "=============="

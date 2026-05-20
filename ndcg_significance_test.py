@@ -1,6 +1,5 @@
 from scipy import stats
 import argparse
-import numpy as np
 from sklearn.metrics import ndcg_score
 from utils import calculate_metrics
 
