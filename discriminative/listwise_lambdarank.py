@@ -278,7 +278,7 @@ if __name__ == '__main__':
         best_model_state = None
         for epoch in range(num_epochs+1):
             # Train (skip actual training on epoch 0 for baseline)
-            train_loss = train(net) if epoch > 0 else 0.0
+            train_loss = train(net) if epoch > 0 else None
             
             # Evaluate on validation and test sets
             val_metrics = test(net, val_reader_iter)
