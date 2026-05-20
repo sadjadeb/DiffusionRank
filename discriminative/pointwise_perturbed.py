@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import wandb
-from utils import set_all_seeds, calculate_metrics
+from utils import set_all_seeds, calculate_metrics, get_features_count
 from model import DNN
 from sklearn.preprocessing import QuantileTransformer
 from copy import deepcopy
@@ -39,15 +39,19 @@ if args.task == 'test':
 
 # Set hyperparameters
 device = torch.device("cuda:0")
-features_count = 136 if 'MSLR' in dataset else 46
 data_normalization = 'quantile'
-num_epochs = 2000 if 'MSLR' in dataset else 5000
 dropout_rate = 0.1
 learning_rate = args.lr
 num_hidden_nodes = args.num_hidden_nodes
 batch_size = 4096
 
-features_count += 1  # Add 1 for time feature
+features_count = get_features_count(args.dataset) + 1  # +1 for time feature
+if args.dataset in ("MSLR-WEB10K", "MSLR-WEB30K", "Istella-S"):
+    num_epochs = 2000
+    threshold_of_neg = 1
+else:
+    num_epochs = 5000
+    threshold_of_neg = 0
 
 wandb.init(project=f"DiffusionRank_{dataset}_final", 
            name=f"disc_pointwise_perturbed_k{k}" + (f"_{args.exp_name}" if args.exp_name else ""), 

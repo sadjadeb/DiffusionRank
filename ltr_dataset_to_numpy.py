@@ -1,7 +1,7 @@
 import numpy as np
 import argparse
 import os
-from utils import set_all_seeds
+from utils import set_all_seeds, get_features_count
 
 set_all_seeds()
 
@@ -23,7 +23,7 @@ def parse_line(line, features_count):
                 feat_idx = int(sub_tokens[0])
                 feat_val = float(sub_tokens[1])
                 feat[feat_idx - 1] = feat_val
-            except Exception as e:
+            except Exception:
                 pass
     return qid, label, feat
 
@@ -40,17 +40,6 @@ def load_and_convert_to_numpy(data_path, features_count):
             labels.append(label)
             features.append(np.array(feat))
     return np.array(idx), np.array(labels), np.array(features)
-
-
-def get_features_count(dataset):
-    if dataset in ("MSLR-WEB10K", "MSLR-WEB30K"):
-        return 136
-    elif dataset in ("MQ2007", "MQ2008"):
-        return 46
-    elif dataset == "Istella-S":
-        return 220
-    else:
-        raise ValueError(f"Invalid dataset: {dataset}")
 
 
 def create_subsamples(k_values, idx_train, X_train, y_train,
@@ -105,7 +94,7 @@ if __name__ == "__main__":
 
     splits = {}
     for split in ["train", "val", "test"]:
-        fname = f"vali.txt" if split == "val" else f"{split}.txt"
+        fname = "vali.txt" if split == "val" else f"{split}.txt"
         data_path = os.path.join(data_base_dir, fname)
         idx, labels, features = load_and_convert_to_numpy(data_path, features_count)
         splits[split] = (idx, labels, features)

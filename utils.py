@@ -21,6 +21,18 @@ def set_all_seeds(seed = 42):
         torch.backends.cudnn.benchmark = False
     
 
+def get_features_count(dataset):
+    if dataset in ("MSLR-WEB10K", "MSLR-WEB30K"):
+        return 136
+    elif dataset in ("MQ2007", "MQ2008"):
+        return 46
+    elif dataset == "Istella-S":
+        return 220
+    else:
+        raise ValueError(f"Invalid dataset: {dataset}")
+
+
+
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0.001, maximize=False):
         self.patience = patience

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import wandb
-from utils import set_all_seeds, calculate_metrics
+from utils import set_all_seeds, calculate_metrics, get_features_count
 from model import DNN
 from sklearn.preprocessing import QuantileTransformer
 from copy import deepcopy
@@ -45,6 +45,12 @@ dropout_rate = 0.1
 learning_rate = args.lr
 num_hidden_nodes = args.num_hidden_nodes
 batch_size = 4096
+
+features_count = get_features_count(args.dataset)
+if args.dataset in ("MSLR-WEB10K", "MSLR-WEB30K", "Istella-S"):
+    num_epochs = 2000
+else:
+    num_epochs = 5000
 
 wandb.init(project=f"DiffusionRank_{dataset}", 
            name=f"disc_pairwise_k{k}" + (f"_{args.exp_name}" if args.exp_name else ""), 
