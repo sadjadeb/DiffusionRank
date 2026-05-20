@@ -46,17 +46,28 @@ def create_subsamples(k_values, idx_train, X_train, y_train,
                       idx_val, X_val, y_val,
                       idx_test, X_test, y_test,
                       output_base_dir):
+    unique_qids = np.unique(idx_train)
+    qid_doc_counts = {qid: np.sum(idx_train == qid) for qid in unique_qids}
+
     for k in k_values:
-        n_samples = int(len(idx_train) * k)
-        
-        subsample_idx = np.random.choice(len(idx_train), n_samples, replace=False)
-        to_select = np.zeros(len(idx_train), dtype=bool)
-        to_select[subsample_idx] = True
-        
+        n_samples_target = int(len(idx_train) * k)
+
+        shuffled_qids = np.random.permutation(unique_qids)
+        selected_qids = []
+        accumulated = 0
+        for qid in shuffled_qids:
+            if accumulated >= n_samples_target:
+                break
+            selected_qids.append(qid)
+            accumulated += qid_doc_counts[qid]
+
+        selected_set = set(selected_qids)
+        to_select = np.array([qid in selected_set for qid in idx_train])
+
         idx_train_k = idx_train[to_select]
         X_train_k = X_train[to_select]
         y_train_k = y_train[to_select]
-        
+
         idx_train_non_k = idx_train[~to_select]
         X_train_non_k = X_train[~to_select]
         y_train_non_k = y_train[~to_select]
@@ -67,7 +78,7 @@ def create_subsamples(k_values, idx_train, X_train, y_train,
         np.save(os.path.join(k_dir, "idx_train.npy"), idx_train_k)
         np.save(os.path.join(k_dir, "X_train.npy"), X_train_k)
         np.save(os.path.join(k_dir, "y_train.npy"), y_train_k)
-        
+
         np.save(os.path.join(k_dir, "idx_train_non.npy"), idx_train_non_k)
         np.save(os.path.join(k_dir, "X_train_non.npy"), X_train_non_k)
         np.save(os.path.join(k_dir, "y_train_non.npy"), y_train_non_k)
@@ -80,7 +91,8 @@ def create_subsamples(k_values, idx_train, X_train, y_train,
         np.save(os.path.join(k_dir, "X_test.npy"), X_test)
         np.save(os.path.join(k_dir, "y_test.npy"), y_test)
 
-        print(f"k={k}: {n_samples} sampled, {len(idx_train_non_k)} non-sampled -> {k_dir}")
+        print(f"k={k}: {len(selected_qids)}/{len(unique_qids)} qids, "
+              f"{len(idx_train_k)}/{len(idx_train)} samples (target {n_samples_target}) -> {k_dir}")
 
 
 if __name__ == "__main__":
