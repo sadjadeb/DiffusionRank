@@ -16,10 +16,11 @@ transposition = False
 
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-train_data_path = os.path.join(project_root, 'data', dataset_name, 'npy', 'Fold1', 'X_num_train.npy')
-train_label_path = os.path.join(project_root, 'data', dataset_name, 'npy', 'Fold1', 'y_train.npy')
-test_data_path = os.path.join(project_root, 'data', dataset_name, 'npy', 'Fold1', 'X_num_test.npy')
-test_label_path = os.path.join(project_root, 'data', dataset_name, 'npy', 'Fold1', 'y_test.npy')
+data_dir = os.path.join(project_root, 'data', dataset_name, 'by_fraction', 'Fold1', 'k1.0')
+train_data_path = os.path.join(data_dir, 'X_train.npy')
+train_label_path = os.path.join(data_dir, 'y_train.npy')
+test_data_path = os.path.join(data_dir, 'X_test.npy')
+test_label_path = os.path.join(data_dir, 'y_test.npy')
 
 
 X_train = np.load(train_data_path)

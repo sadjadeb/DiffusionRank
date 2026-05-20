@@ -111,21 +111,20 @@ def main(args):
     raw_config['unimodmlp_params']['num_layers'] = args.num_layers
     raw_config['train']['main']['batch_size'] = args.batch_size
         
-    X_train = np.load(os.path.join(data_dir, 'X_num_train.npy'))
+    X_train = np.load(os.path.join(data_dir, 'X_train.npy'))
     y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
     idx_train = np.load(os.path.join(data_dir, 'idx_train.npy'))
 
-    X_val = np.load(os.path.join(data_dir, 'X_num_val.npy'))
+    X_val = np.load(os.path.join(data_dir, 'X_val.npy'))
     y_val = np.load(os.path.join(data_dir, 'y_val.npy'))
     idx_val = np.load(os.path.join(data_dir, 'idx_val.npy'))
 
-    X_test = np.load(os.path.join(data_dir, 'X_num_test.npy'))
+    X_test = np.load(os.path.join(data_dir, 'X_test.npy'))
     y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
     idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
 
     if args.approach == 'pointwise':
         # Binarize labels
-        threshold_of_neg = 1 if 'MSLR' in dataset else 0
         y_train[y_train <= threshold_of_neg], y_train[y_train > threshold_of_neg] = 0, 1
 
 

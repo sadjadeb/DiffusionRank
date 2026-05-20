@@ -75,19 +75,19 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 data_dir = os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}')
 
 
-X_train = np.load(os.path.join(data_dir, 'X_num_train.npy'))
+X_train = np.load(os.path.join(data_dir, 'X_train.npy'))
 y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
+idx_train = np.load(os.path.join(data_dir, 'idx_train.npy'))
 
-X_val = np.load(os.path.join(data_dir, 'X_num_val.npy'))
+X_val = np.load(os.path.join(data_dir, 'X_val.npy'))
 y_val = np.load(os.path.join(data_dir, 'y_val.npy'))
 idx_val = np.load(os.path.join(data_dir, 'idx_val.npy'))
 
-X_test = np.load(os.path.join(data_dir, 'X_num_test.npy'))
+X_test = np.load(os.path.join(data_dir, 'X_test.npy'))
 y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
 idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
 
 # Binarize labels
-threshold_of_neg = 1 if 'MSLR' in dataset else 0
 bin_y_train = np.empty_like(y_train)
 bin_y_val = np.empty_like(y_val)
 bin_y_test = np.empty_like(y_test)

@@ -28,15 +28,15 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 data_dir = os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}')
 
 
-X_train = np.load(os.path.join(data_dir, 'X_num_train.npy'))
+X_train = np.load(os.path.join(data_dir, 'X_train.npy'))
 y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
 idx_train = np.load(os.path.join(data_dir, 'idx_train.npy'))
 
-X_val = np.load(os.path.join(data_dir, 'X_num_val.npy'))
+X_val = np.load(os.path.join(data_dir, 'X_val.npy'))
 y_val = np.load(os.path.join(data_dir, 'y_val.npy'))
 idx_val = np.load(os.path.join(data_dir, 'idx_val.npy'))
 
-X_test = np.load(os.path.join(data_dir, 'X_num_test.npy'))
+X_test = np.load(os.path.join(data_dir, 'X_test.npy'))
 y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
 idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
 
@@ -84,8 +84,12 @@ if objective == 'rank:pairwise' or objective == 'rank:ndcg':
     params['lambdarank_num_pair_per_sample'] = 10
     params['lambdarank_pair_method'] = "topk"
 
-if 'MSLR' in dataset:
+if args.dataset == "MSLR-WEB10K" or args.dataset == "MSLR-WEB30K":
     params['max_depth'] = 32
+elif args.dataset == "MQ2007" or args.dataset == "MQ2008":
+    params['max_depth'] = 16
+elif args.dataset == "Istella-S":
+    params['max_depth'] = 16
 
 model = xgb.train(params, dtrain,
                     num_boost_round=3000,

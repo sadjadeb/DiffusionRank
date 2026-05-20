@@ -16,13 +16,13 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 data_dir = os.path.join(project_root, 'data', dataset_name, 'by_fraction', 'Fold1', f'k{k}')
 
 
-X_train = np.load(os.path.join(data_dir, 'X_num_train.npy'))
+X_train = np.load(os.path.join(data_dir, 'X_train.npy'))
 y_train = np.load(os.path.join(data_dir, 'y_train.npy'))
 
-X_val = np.load(os.path.join(data_dir, 'X_num_val.npy'))
+X_val = np.load(os.path.join(data_dir, 'X_val.npy'))
 y_val = np.load(os.path.join(data_dir, 'y_val.npy'))
 
-X_test = np.load(os.path.join(data_dir, 'X_num_test.npy'))
+X_test = np.load(os.path.join(data_dir, 'X_test.npy'))
 y_test = np.load(os.path.join(data_dir, 'y_test.npy'))
 
 # Concat features and labels of train, val, and test sets
