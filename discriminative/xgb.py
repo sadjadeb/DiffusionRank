@@ -11,7 +11,7 @@ set_all_seeds(seed)
 
 # Parse arguments
 parser = argparse.ArgumentParser(description='Run XGBoost Experiment')
-parser.add_argument('--dataset', type=str, default='MQ2007', choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment')
+parser.add_argument('--dataset', type=str, default='MQ2007', choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K', 'Istella-S'], help='Dataset to use for the experiment')
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
 parser.add_argument('--approach', type=str, choices=['pointwise', 'pairwise', 'listwise'], default='pointwise', help='Approach for training')
 args = parser.parse_args()
@@ -42,7 +42,12 @@ idx_test = np.load(os.path.join(data_dir, 'idx_test.npy'))
 
 # Binarize labels
 if args.approach == 'pointwise':
-    threshold_of_neg = 1 if 'MSLR' in dataset else 0
+    if args.dataset == "MSLR-WEB10K" or args.dataset == "MSLR-WEB30K":
+        threshold_of_neg = 1
+    elif args.dataset == "MQ2007" or args.dataset == "MQ2008":
+        threshold_of_neg = 0
+    elif args.dataset == "Istella-S":
+        threshold_of_neg = 1
     y_train[y_train <= threshold_of_neg], y_train[y_train > threshold_of_neg] = 0, 1
 
 # Normalize

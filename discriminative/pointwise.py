@@ -17,7 +17,7 @@ set_all_seeds(seed)
 
 # get k from command line arguments
 parser = argparse.ArgumentParser(description='Train and test a pointwise neural network for Learning-to-Rank tasks')
-parser.add_argument('--dataset', type=str, required=True, choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K'], help='Dataset to use for the experiment (required)')
+parser.add_argument('--dataset', type=str, required=True, choices=['MQ2007', 'MQ2008', 'MSLR-WEB10K', 'MSLR-WEB30K', 'Istella-S'], help='Dataset to use for the experiment (required)')
 parser.add_argument('--task', type=str, choices=['train', 'test'], help='Task to run: train or test') 
 parser.add_argument('--k', type=float, default=1.0, help='Fraction k for the dataset')
 parser.add_argument('--no_wandb', action='store_true', help='Disable Weights & Biases logging')

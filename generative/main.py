@@ -30,12 +30,25 @@ def main(args):
     ## Get data info
     dataset = args.dataname
     k = args.k if args.k else 1.0
-    d_numerical = 136 if 'MSLR' in dataset else 46
+    if dataset == "MSLR-WEB10K" or dataset == "MSLR-WEB30K":
+        d_numerical = 136
+        threshold_of_neg = 1
+    elif dataset == "MQ2007" or dataset == "MQ2008":
+        d_numerical = 46
+        threshold_of_neg = 0
+    elif dataset == "Istella-S":
+        d_numerical = 220
+        threshold_of_neg = 1
     
     if args.approach == 'pointwise':
         categories = np.array([2])
     elif args.approach in ['pairwise', 'listwise_lambdarank']:
-        categories = np.array([5]) if 'MSLR' in dataset else np.array([3])
+        if dataset == "MSLR-WEB10K" or dataset == "MSLR-WEB30K":
+            categories = np.array([5])
+        elif dataset == "MQ2007" or dataset == "MQ2008":
+            categories = np.array([3])
+        elif dataset == "Istella-S":
+            categories = np.array([5])
     
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     data_dir = os.path.join(project_root, 'data', dataset, 'by_fraction', 'Fold1', f'k{k}')
