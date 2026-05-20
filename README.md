@@ -36,8 +36,7 @@ DiffusionRank/
 │   ├── listwise_lambdarank.py     # LambdaRank implementation
 │   └── xgb.py                     # XGBoost baseline
 ├── EDA/                                  # Exploratory data analysis
-├── ltr_dataset_to_numpy.py               # Convert LTR dataset to numpy arrays
-├── create_subdatasets_by_k_fraction.py   # Create subsamples by fraction for a given dataset
+├── ltr_dataset_to_numpy.py               # Convert raw LTR data to numpy and create fraction subsets
 ├── compute_ranking_metrics.py            # Evaluation script
 ├── ndcg_significance_test.py             # Statistical significance testing
 └── utils.py                              # Utility functions
@@ -75,36 +74,35 @@ We evaluate on three standard LTR benchmarks:
 
 ### Data Format
 
-After downloading, organize the data as follows:
+Place raw LETOR files under `data/{dataset}/raw/`. Then run:
+
+```bash
+python ltr_dataset_to_numpy.py --dataset MQ2007 --fold 1
+```
+
+This converts raw text to numpy and creates fraction subsets in one step, producing:
 
 ```
 data/
 ├── MQ2007/
 │   └── by_fraction/
 │       └── Fold1/
-│           └── k1.0/
-│               ├── X_num_train.npy
-│               ├── y_train.npy
-│               ├── idx_train.npy
-│               ├── X_num_val.npy
-│               ├── y_val.npy
-│               ├── idx_val.npy
-│               ├── X_num_test.npy
-│               ├── y_test.npy
-│               └── idx_test.npy
+│           ├── k1.0/
+│           │   ├── X_train.npy, y_train.npy, idx_train.npy
+│           │   ├── X_train_non.npy, y_train_non.npy, idx_train_non.npy
+│           │   ├── X_val.npy, y_val.npy, idx_val.npy
+│           │   └── X_test.npy, y_test.npy, idx_test.npy
+│           ├── k0.5/
+│           │   └── ...
+│           ├── k0.25/
+│           ├── ...
 ├── MQ2008/
 │   └── ...
 └── MSLR-WEB10K/
     └── ...
 ```
 
-### Creating Data Subsets
-
-To create training subsets with different fractions of data:
-
-```bash
-python prepare_data/create_subdatasets_by_k_fraction.py
-```
+Fraction values: `1.0, 0.5, 0.25, 0.0625, 0.015625, 0.00390625`
 
 ## Training
 
