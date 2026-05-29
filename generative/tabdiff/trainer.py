@@ -424,11 +424,10 @@ class Trainer:
         default_num_timesteps = self.diffusion.num_timesteps
         self.diffusion.num_timesteps = 1
         
-        x_num = data[:, :self.d_numerical].to(self.device)
-        x_cat = data[:, self.d_numerical:].long().to(self.device)
         y_true = data[:, self.d_numerical:].squeeze().cpu().numpy()
         
         if self.approach in ['pairwise', 'listwise_lambdarank']:
+            x_num = data[:, :self.d_numerical].to(self.device)
             # For pairwise/listwise_lambdarank, get raw logits from model as ranking scores
             # Use minimal noise to get clean predictions
             self.diffusion.eval()
@@ -477,11 +476,10 @@ class Trainer:
         default_num_timesteps = self.diffusion.num_timesteps
         self.diffusion.num_timesteps = 1
         
-        x_num = data[:, :self.d_numerical].to(self.device)
-        x_cat = data[:, self.d_numerical:].long().to(self.device)
         y_true = data[:, self.d_numerical:].squeeze().cpu().numpy()
         
         if self.approach in ['pairwise', 'listwise_lambdarank']:
+            x_num = data[:, :self.d_numerical].to(self.device)
             # For pairwise/listwise_lambdarank, get raw logits from model as ranking scores
             # Use minimal noise to get clean predictions
             self.diffusion.eval()

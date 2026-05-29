@@ -165,9 +165,9 @@ def main(args):
         print(f"Organized training data into {num_queries_after} queries with multiple documents (filtered out {num_filtered} queries with only one document)")
 
     # Create PyTorch tensors from numpy arrays
-    train_data = torch.from_numpy(X_train).float().to(device)
-    val_data = torch.from_numpy(X_val).float().to(device)
-    test_data = torch.from_numpy(X_test).float().to(device)
+    train_data = torch.from_numpy(X_train).float()
+    val_data = torch.from_numpy(X_val).float()
+    test_data = torch.from_numpy(X_test).float()
     
     ## Load the module and models
     raw_config['unimodmlp_params']['approach'] = args.approach

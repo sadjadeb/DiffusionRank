@@ -678,7 +678,7 @@ class UnifiedCtimeDiffusion(torch.nn.Module):
             elif impute_condition == "x_0":
                 z_cat = x_cat
         
-        for i in tqdm(reversed(range(0, self.num_timesteps)), total=self.num_timesteps, desc="Sampling Progress"):
+        for i in reversed(range(0, self.num_timesteps)):
             # Get known parts by Forward Flow
             if impute_condition == "x_t":
                 z_norm_known = x_num + torch.randn((b, self.num_numerical_features), device=device) * sigma_num_next[i]
