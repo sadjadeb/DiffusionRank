@@ -260,7 +260,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataname', type=str, default='adult', help='Name dataset, one of those in data/ dir')
     parser.add_argument('--mode', type=str, default='train', help='train or test')
     parser.add_argument('--method', type=str, default='tabdiff', help='Currently we only release our model TabDiff. Baselines will be released soon.')
-    parser.add_argument('--gpu', type=int, default=0, help='GPU index')
+    parser.add_argument('--device', type=str, default='cuda:0', help='Device to use')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('--no_wandb', action='store_true', help='disable wandb')
     parser.add_argument('--exp_name', type=str, default=None, help='Experiment name, used to name log directories and the wandb run name')
@@ -296,11 +296,5 @@ if __name__ == '__main__':
     parser.add_argument('--finetune_ckpt_path', type=str, default=None, help='Path to the model checkpoint to be finetuned')
 
     args = parser.parse_args()
-
-    # check cuda
-    if args.gpu != -1 and torch.cuda.is_available():
-        args.device = f'cuda:{args.gpu}'
-    else:
-        args.device = 'cpu'
     
     main(args)
