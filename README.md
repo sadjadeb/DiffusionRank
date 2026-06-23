@@ -81,7 +81,7 @@ Download Fold 1 splits and place them under `data/{dataset}/raw/Fold1/` as `trai
 
 ### Convert to NumPy
 
-The code has been designed to work with the datasets in the .npy format. To convert the datasets, run the following command. This script also creates fraction subsets of the datasets (k=1.0, 0.5, 0.25, 0.0625, 0.015625, 0.00390625) by query ID:
+The code has been designed to work with the datasets in the .npy format. To convert the datasets, run the following command. This script also creates fraction subsets of the datasets (k=1/1, 1/2, 1/4, 1/8, 1/16, 1/32) by query ID:
 
 ```bash
 python ltr_dataset_to_numpy.py --dataset MQ2007 --fold 1
