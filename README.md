@@ -1,14 +1,5 @@
 # DiffusionRank: Learning to Rank via Denoising Diffusion
 
-<p align="center">
-  <a href="https://arxiv.org/abs/2602.11453">
-    <img alt="arXiv" src="https://img.shields.io/badge/arXiv-2602.11453-B31B1B.svg">
-  </a>
-  <a href="https://dl.acm.org/doi/10.1145/3805713.3820437">
-    <img alt="ICTIR 2026" src="https://img.shields.io/badge/ICTIR-2026-blue">
-  </a>
-</p>
-
 Official implementation of **DiffusionRank**, accepted at **ICTIR 2026** (*From Noise to Order: Learning to Rank via Denoising Diffusion*).
 
 
